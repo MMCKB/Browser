@@ -1,0 +1,113 @@
+name: Android CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        arch: [x86_64, x86, arm64-v8a, armeabi-v7a]
+        include:
+          - arch: x86_64
+            suffix: x86_64
+          - arch: x86
+            suffix: x86
+          - arch: arm64-v8a
+            suffix: arm64
+          - arch: armeabi-v7a
+            suffix: armv7
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v3
+
+    - name: Cache Gradle packages
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.gradle/caches
+          ~/.gradle/wrapper
+        key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+        restore-keys: |
+          ${{ runner.os }}-gradle-
+
+    - name: Write keystore file
+      run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > app/release.keystore
+
+    - name: Grant execute permission for gradlew
+      run: chmod +x gradlew
+
+    - name: Build debug APK (${{ matrix.arch }})
+      run: ./gradlew assembleDebug -Pandroid.injected.signing.store.file=app/release.keystore -Pandroid.injected.signing.store.password=${{ secrets.KEYSTORE_PASSWORD }} -Pandroid.injected.signing.key.alias=${{ secrets.KEY_ALIAS }} -Pandroid.injected.signing.key.password=${{ secrets.KEY_PASSWORD }} -Pandroid.buildOnlyTargetAbi=true -Pandroid.injected.abi=${{ matrix.arch }}
+
+    - name: Rename debug APK with arch
+      run: |
+        cd app/build/outputs/apk/debug/
+        mv app-debug.apk FloatingBrowser-debug-${{ matrix.suffix }}.apk
+
+    - name: Upload debug APK artifact (${{ matrix.arch }})
+      uses: actions/upload-artifact@v4
+      with:
+        name: FloatingBrowser-debug-${{ matrix.suffix }}
+        path: app/build/outputs/apk/debug/FloatingBrowser-debug-${{ matrix.suffix }}.apk
+
+    - name: Build release APK (${{ matrix.arch }})
+      if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+      run: ./gradlew assembleRelease -Pandroid.injected.signing.store.file=app/release.keystore -Pandroid.injected.signing.store.password=${{ secrets.KEYSTORE_PASSWORD }} -Pandroid.injected.signing.key.alias=${{ secrets.KEY_ALIAS }} -Pandroid.injected.signing.key.password=${{ secrets.KEY_PASSWORD }} -Pandroid.buildOnlyTargetAbi=true -Pandroid.injected.abi=${{ matrix.arch }}
+
+    - name: Rename release APK with arch
+      if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+      run: |
+        cd app/build/outputs/apk/release/
+        mv app-release.apk FloatingBrowser-release-${{ matrix.suffix }}.apk
+
+    - name: Upload release APK artifact (${{ matrix.arch }})
+      if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+      uses: actions/upload-artifact@v4
+      with:
+        name: FloatingBrowser-release-${{ matrix.suffix }}
+        path: app/build/outputs/apk/release/FloatingBrowser-release-${{ matrix.suffix }}.apk
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+        pattern: FloatingBrowser-*-*
+
+    - name: Create zip archive
+      run: |
+        cd artifacts
+        zip -r ../FloatingBrowser-v${{ github.run_number }}.zip .
+
+    - name: Create Release and Upload Assets
+      uses: softprops/action-gh-release@v2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+      with:
+        tag_name: v${{ github.run_number }}
+        name: FloatingBrowser Release v${{ github.run_number }}
+        files: |
+          artifacts/FloatingBrowser-release-*.apk
+          artifacts/FloatingBrowser-debug-*.apk
