@@ -96,7 +96,6 @@ class MainActivity : AppCompatActivity() {
     private data class Palette(
         val page: Int,
         val card: Int,
-        val cardTranslucent: Int,
         val cardStroke: Int,
         val group: Int,
         val input: Int,
@@ -152,7 +151,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var preferences: SharedPreferences
     private lateinit var root: FrameLayout
     private lateinit var webContainer: FrameLayout
-    private lateinit var bottomControlCard: MaterialCardView
+    private lateinit var bottomControlCard: FrameLayout
     private lateinit var tabCountButton: MaterialButton
     private lateinit var tabStrip: LinearLayout
     private lateinit var addressField: EditText
@@ -225,8 +224,6 @@ class MainActivity : AppCompatActivity() {
                 // 深色模式：纯深灰黑毛玻璃，蓝调仅保留在 accent
                 page = Color.rgb(18, 18, 20),
                 card = Color.argb(210, 36, 36, 39),
-                // 半透明毛玻璃：alpha 降低至 160，让 tab 栏区域透出内容
-                cardTranslucent = Color.argb(160, 36, 36, 39),
                 cardStroke = Color.argb(90, 80, 80, 84),
                 group = Color.WHITE,
                 input = Color.rgb(248, 248, 250),
@@ -246,8 +243,6 @@ class MainActivity : AppCompatActivity() {
                 // card 作为厚毛玻璃底座 — 高透明度纯白
                 page = Color.rgb(247, 247, 250),
                 card = Color.argb(235, 252, 252, 253),
-                // 半透明毛玻璃：alpha 降至 160，让 tab 栏区域透出网页内容
-                cardTranslucent = Color.argb(160, 252, 252, 253),
                 cardStroke = Color.argb(70, 200, 200, 204),
                 // group 交互底座 — 实体白，不透光，不叠在透光层上
                 group = Color.WHITE,
@@ -289,16 +284,10 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
-    private fun buildBottomControlCard(): MaterialCardView {
-        val palette = currentPalette()
-        return MaterialCardView(this).apply {
-            radius = dp(20).toFloat()
-            // 材质：浮动容器，零背景零阴影 — 控件独立浮于网页之上
-            cardElevation = 0f
-            // 无填充、无边框、无阴影 — 彻底消除卡片感
-            setCardBackgroundColor(Color.TRANSPARENT)
-            strokeColor = Color.TRANSPARENT
-            strokeWidth = 0
+    private fun buildBottomControlCard(): FrameLayout {
+        // 材质：浮动容器 — 使用 FrameLayout 彻底消除 MaterialCardView 的视觉残留
+        // 无背景、无边框、无阴影、无圆角，控件独立浮于网页之上
+        return FrameLayout(this).apply {
             addView(LinearLayout(this@MainActivity).apply {
                 orientation = LinearLayout.VERTICAL
                 setPadding(dp(5), dp(5), dp(5), dp(5))
