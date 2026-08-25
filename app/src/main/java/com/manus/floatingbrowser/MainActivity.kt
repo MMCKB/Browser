@@ -260,10 +260,10 @@ class MainActivity : AppCompatActivity() {
         val palette = currentPalette()
         return MaterialCardView(this).apply {
             radius = dp(20).toFloat()
-            // 材质：底部栏较低层级（工具栏浮于其上）
+            // 材质：底部栏层级低于工具栏
             cardElevation = dp(4).toFloat()
-            setCardBackgroundColor(Color.argb(220, Color.red(palette.card), Color.green(palette.card), Color.blue(palette.card)))
-            strokeColor = Color.argb(80, Color.red(palette.cardStroke), Color.green(palette.cardStroke), Color.blue(palette.cardStroke))
+            setCardBackgroundColor(palette.card)
+            strokeColor = palette.cardStroke
             strokeWidth = dp(1)
             addView(LinearLayout(this@MainActivity).apply {
                 orientation = LinearLayout.VERTICAL
@@ -722,31 +722,28 @@ class MainActivity : AppCompatActivity() {
             return
         }
         val palette = currentPalette()
+        // Apple Design 层级原则：模糊层与内容层分离
+        // 模糊层在底层，工具栏浮于其上且不被模糊
         tabToolsOverlay = FrameLayout(this).apply {
             isClickable = true
             alpha = 0f
-            // 材质：半透明遮罩 + 模糊背景（Android 12+）
-            setBackgroundColor(Color.argb(70, 0, 0, 0))
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-                setRenderEffect(
-                    android.graphics.RenderEffect.createBlurEffect(dp(20).toFloat(), dp(20).toFloat(), android.graphics.Shader.TileMode.CLAMP)
-                )
-            }
+            // 材质：半透明遮罩（不模糊，仅降低亮度营造景深）
+            setBackgroundColor(Color.argb(45, 0, 0, 0))
             setOnClickListener { hideTabTools() }
         }
         val toolbar = MaterialCardView(this).apply {
             radius = dp(24).toFloat()
+            // 材质：层级深度 - 工具栏浮起高于底部栏
             cardElevation = dp(16).toFloat()
-            // 材质：半透明毛玻璃质感背景
-            setCardBackgroundColor(Color.argb(210, Color.red(palette.card), Color.green(palette.card), Color.blue(palette.card)))
-            strokeColor = Color.argb(60, Color.red(palette.cardStroke), Color.green(palette.cardStroke), Color.blue(palette.cardStroke))
+            translationZ = dp(8).toFloat()
+            // 材质：近不透明背景确保内容可读
+            setCardBackgroundColor(palette.card)
+            strokeColor = palette.cardStroke
             strokeWidth = dp(1)
             alpha = 0f
             scaleX = 0.86f
             scaleY = 0.86f
             translationY = dp(30).toFloat()
-            // 材质：Z轴深度（浮起感）
-            translationZ = dp(8).toFloat()
             setOnClickListener { /* 点击菜单自身不关闭。 */ }
 
             // 工具栏内容：垂直布局
@@ -829,11 +826,8 @@ class MainActivity : AppCompatActivity() {
             insetBottom = 0
             setPadding(dp(4), dp(4), dp(4), dp(4))
             cornerRadius = dp(14)
-            // 材质：半透明按钮 + 层级阴影
-            backgroundTintList = ColorStateList.valueOf(Color.argb(170, Color.red(palette.group), Color.green(palette.group), Color.blue(palette.group)))
+            backgroundTintList = ColorStateList.valueOf(palette.group)
             setTextColor(palette.icon)
-            // 材质：按钮浮起感（Z轴高度）
-            translationZ = dp(2).toFloat()
             layoutParams = LinearLayout.LayoutParams(0, dp(48), 1f).apply {
                 setMargins(dp(2), dp(2), dp(2), dp(2))
             }
@@ -890,14 +884,14 @@ class MainActivity : AppCompatActivity() {
         view.setOnTouchListener { v, event ->
             when (event.action) {
                 android.view.MotionEvent.ACTION_DOWN -> {
-                    // 按压下沉 + 阴影缩小
-                    v.animate().scaleX(0.95f).scaleY(0.95f).translationZ(0f)
+                    // 按压下沉
+                    v.animate().scaleX(0.95f).scaleY(0.95f)
                         .setDuration(80)
                         .setInterpolator(android.view.animation.DecelerateInterpolator()).start()
                 }
                 android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> {
-                    // 释放浮起 + 阴影恢复
-                    v.animate().scaleX(1f).scaleY(1f).translationZ(dp(2).toFloat())
+                    // 释放浮起
+                    v.animate().scaleX(1f).scaleY(1f)
                         .setDuration(120)
                         .setInterpolator(android.view.animation.OvershootInterpolator(1.2f)).start()
                 }
