@@ -12,13 +12,19 @@ import android.content.pm.PackageManager
 import android.content.SharedPreferences
 import android.content.res.ColorStateList
 import android.content.res.Configuration
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.PointF
+import android.graphics.RenderEffect
+import android.graphics.Shader
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.view.Gravity
 import android.view.KeyEvent
@@ -37,6 +43,7 @@ import android.webkit.URLUtil
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.ScrollView
@@ -152,6 +159,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var root: FrameLayout
     private lateinit var webContainer: FrameLayout
     private lateinit var bottomControlCard: FrameLayout
+    private lateinit var frostedWebBackdrop: ImageView
+    private val frostedBackdropHandler = Handler(Looper.getMainLooper())
+    private val refreshFrostedBackdropRunnable = Runnable { updateFrostedWebBackdrop() }
     private lateinit var tabCountButton: MaterialButton
     private lateinit var tabStrip: LinearLayout
     private lateinit var addressField: EditText
@@ -192,7 +202,8 @@ class MainActivity : AppCompatActivity() {
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT
             ).apply {
-                setMargins(0, 0, 0, dp(if (tabLayoutMode == TabLayoutMode.FULL) 106 else 62))
+                // 网页全高渲染，透明 Tab 区直接透出正在浏览的内容。
+                setMargins(0, 0, 0, 0)
             }
         )
         attachBottomControls()
@@ -282,12 +293,30 @@ class MainActivity : AppCompatActivity() {
                 setMargins(dp(12), 0, dp(12), dp(10))
             }
         )
+        bottomControlCard.post { scheduleFrostedBackdropRefresh() }
     }
 
     private fun buildBottomControlCard(): FrameLayout {
-        // 材质：浮动容器 — 使用 FrameLayout 彻底消除 MaterialCardView 的视觉残留
-        // 无背景、无边框、无阴影、无圆角，控件独立浮于网页之上
+        // 网页本身位于该容器下方；背景快照仅用于 Android 31+ 的真实毛玻璃效果。
         return FrameLayout(this).apply {
+            frostedWebBackdrop = ImageView(this@MainActivity).apply {
+                scaleType = ImageView.ScaleType.MATRIX
+                alpha = if (isDarkPalette()) 0.46f else 0.62f
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    setRenderEffect(RenderEffect.createBlurEffect(dp(18).toFloat(), dp(18).toFloat(), Shader.TileMode.CLAMP))
+                }
+            }
+            addView(frostedWebBackdrop, FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            ))
+            addView(View(this@MainActivity).apply {
+                // 兼容层：既让网页透出，也确保深浅主题下的文本和图标稳定可读。
+                setBackgroundColor(if (isDarkPalette()) Color.argb(76, 18, 20, 26) else Color.argb(86, 255, 255, 255))
+            }, FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            ))
             addView(LinearLayout(this@MainActivity).apply {
                 orientation = LinearLayout.VERTICAL
                 setPadding(dp(5), dp(5), dp(5), dp(5))
@@ -300,6 +329,43 @@ class MainActivity : AppCompatActivity() {
                 }
             })
         }
+    }
+
+    private fun frostedSurfaceColor(): Int =
+        if (isDarkPalette()) Color.argb(118, 35, 39, 49) else Color.argb(176, 255, 255, 255)
+
+    private fun frostedInputColor(): Int =
+        if (isDarkPalette()) Color.argb(152, 30, 34, 43) else Color.argb(194, 255, 255, 255)
+
+    private fun scheduleFrostedBackdropRefresh() {
+        if (!::bottomControlCard.isInitialized) return
+        frostedBackdropHandler.removeCallbacks(refreshFrostedBackdropRunnable)
+        frostedBackdropHandler.postDelayed(refreshFrostedBackdropRunnable, 120L)
+    }
+
+    private fun updateFrostedWebBackdrop() {
+        if (!::bottomControlCard.isInitialized || !::frostedWebBackdrop.isInitialized ||
+            webContainer.width <= 0 || webContainer.height <= 0 || bottomControlCard.width <= 0 || bottomControlCard.height <= 0
+        ) return
+        val rootLocation = IntArray(2)
+        val cardLocation = IntArray(2)
+        root.getLocationOnScreen(rootLocation)
+        bottomControlCard.getLocationOnScreen(cardLocation)
+        val cardTopInRoot = (cardLocation[1] - rootLocation[1]).coerceAtLeast(0)
+        val sourceY = cardTopInRoot.coerceAtMost((webContainer.height - 1).coerceAtLeast(0))
+        val sourceHeight = (webContainer.height - sourceY).coerceAtLeast(1)
+        val source = try {
+            Bitmap.createBitmap(webContainer.width, sourceHeight, Bitmap.Config.ARGB_8888).also { bitmap ->
+                val canvas = Canvas(bitmap)
+                canvas.translate(0f, -sourceY.toFloat())
+                webContainer.draw(canvas)
+            }
+        } catch (_: OutOfMemoryError) {
+            return
+        }
+        val scaled = Bitmap.createScaledBitmap(source, bottomControlCard.width, bottomControlCard.height, true)
+        if (scaled !== source) source.recycle()
+        frostedWebBackdrop.setImageBitmap(scaled)
     }
 
     private fun buildPrimaryControlRow(): LinearLayout {
@@ -316,8 +382,8 @@ class MainActivity : AppCompatActivity() {
                 setHintTextColor(palette.mutedText)
                 hint = "搜索或网址"
                 setPadding(dp(10), 0, dp(10), 0)
-                // 材质：输入区 — 浅灰白实体，与毛玻璃底座区分
-                background = roundedBackground(palette.input, dp(16), palette.cardStroke)
+                // 在磨砂网页背景上使用半透明输入面，保留网页层次并维持可读性。
+                background = roundedBackground(frostedInputColor(), dp(16), palette.cardStroke)
                 imeOptions = EditorInfo.IME_ACTION_GO
                 inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_URI
                 setOnEditorActionListener { _, actionId, event ->
@@ -356,8 +422,8 @@ class MainActivity : AppCompatActivity() {
         return MaterialCardView(this).apply {
             radius = dp(17).toFloat()
             cardElevation = 0f
-            // 材质：交互底座 — 实体白，不透光，不叠在透光层上
-            setCardBackgroundColor(palette.group)
+            // 半透明交互底座，背景网页仍可通过外围磨砂层感知。
+            setCardBackgroundColor(frostedSurfaceColor())
             strokeColor = palette.cardStroke
             strokeWidth = dp(1)
             addView(LinearLayout(this@MainActivity).apply {
@@ -391,6 +457,7 @@ class MainActivity : AppCompatActivity() {
                 gravity = Gravity.CENTER
                 contentDescription = "新建标签页"
                 setTextColor(palette.icon)
+                background = roundedBackground(frostedSurfaceColor(), dp(13), palette.cardStroke)
                 setOnClickListener { createTab() }
             }, LinearLayout.LayoutParams(dp(28), dp(32)))
         }
@@ -441,8 +508,8 @@ class MainActivity : AppCompatActivity() {
             insetBottom = 0
             setPadding(0, 0, 0, 0)
             cornerRadius = dp(13)
-            // 材质：交互按钮 — 实体白，不透光，放置在毛玻璃底座之上
-            backgroundTintList = ColorStateList.valueOf(palette.group)
+            // 半透明按钮表面，与底部网页磨砂背景保持一致。
+            backgroundTintList = ColorStateList.valueOf(frostedSurfaceColor())
             setTextColor(palette.icon)
             layoutParams = LinearLayout.LayoutParams(dp(32), dp(34)).apply { marginEnd = dp(1) }
             setOnClickListener { onClick(it) }
@@ -508,6 +575,7 @@ class MainActivity : AppCompatActivity() {
                 if (tab.id == activeTabId) {
                     addressField.setText(url)
                     progressBar.visibility = View.GONE
+                    scheduleFrostedBackdropRefresh()
                 }
                 refreshTabStrip()
             }
@@ -524,6 +592,9 @@ class MainActivity : AppCompatActivity() {
                 tab.title = title?.takeIf { it.isNotBlank() } ?: hostLabel(tab.url)
                 refreshTabStrip()
             }
+        }
+        tab.webView.setOnScrollChangeListener { _, _, _, _, _ ->
+            if (tab.id == activeTabId) scheduleFrostedBackdropRefresh()
         }
         tab.webView.setDownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
             enqueueWebDownload(url, userAgent, contentDisposition, mimeType)
@@ -554,6 +625,7 @@ class MainActivity : AppCompatActivity() {
         }
         addressField.clearFocus()
         progressBar.visibility = View.GONE
+        scheduleFrostedBackdropRefresh()
     }
 
     private fun buildHomeScreen(tab: BrowserTab): View {
@@ -726,9 +798,9 @@ class MainActivity : AppCompatActivity() {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
                 setPadding(dp(9), 0, dp(2), 0)
-                // 材质：透明背景，仅保留 1dp 细边框作为交互提示
+                // 标签为低透明度磨砂芯片，选中标签略加深但仍显示网页纹理。
                 background = roundedBackground(
-                    Color.TRANSPARENT,
+                    if (selected) frostedSurfaceColor() else Color.argb(if (isDarkPalette()) 58 else 72, 255, 255, 255),
                     dp(13),
                     if (selected) palette.cardStroke else Color.argb(40, 180, 180, 184)
                 )
@@ -1908,10 +1980,11 @@ class MainActivity : AppCompatActivity() {
     private fun applyTabLayout() {
         attachBottomControls()
         val contentParams = webContainer.layoutParams as FrameLayout.LayoutParams
-        contentParams.bottomMargin = dp(if (tabLayoutMode == TabLayoutMode.FULL) 106 else 62)
+        contentParams.bottomMargin = 0
         webContainer.layoutParams = contentParams
         activeTab?.let { renderActiveTab(it) }
         refreshTabStrip()
+        scheduleFrostedBackdropRefresh()
     }
 
     private fun hideSettings() {
@@ -2122,6 +2195,7 @@ class MainActivity : AppCompatActivity() {
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).roundToInt()
 
     override fun onDestroy() {
+        frostedBackdropHandler.removeCallbacksAndMessages(null)
         if (!isChangingConfigurations) {
             tabs.forEach {
                 it.webView.stopLoading()
