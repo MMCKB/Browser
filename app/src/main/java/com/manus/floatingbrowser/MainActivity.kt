@@ -763,7 +763,7 @@ class MainActivity : AppCompatActivity() {
                 ), LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     dp(48)
-                ).apply { topMargin = dp(4) })
+                ).apply { topMargin = dp(6) })
 
                 // 底部行：收起和关闭按钮（右对齐）
                 addView(LinearLayout(this@MainActivity).apply {
@@ -772,7 +772,7 @@ class MainActivity : AppCompatActivity() {
                     layoutParams = LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.WRAP_CONTENT
-                    ).apply { topMargin = dp(6) }
+                    ).apply { topMargin = dp(8) }
                     addView(MaterialButton(this@MainActivity).apply {
                         text = "⏶"
                         textSize = 14f
