@@ -818,7 +818,7 @@ class MainActivity : AppCompatActivity() {
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 Gravity.BOTTOM
             ).apply {
-                setMargins(dp(8), 0, dp(8), dp(if (tabLayoutMode == TabLayoutMode.FULL) 106 else 62))
+                setMargins(dp(12), 0, dp(12), dp(if (tabLayoutMode == TabLayoutMode.FULL) 106 else 62))
             }
         )
         root.addView(
