@@ -1,4 +1,4 @@
-package com.manus.floatingbrowser
+package com.mmckb.browser
 
 import android.app.Service
 import android.content.Context

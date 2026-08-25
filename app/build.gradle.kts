@@ -4,11 +4,11 @@ plugins {
 }
 
 android {
-    namespace = "com.manus.floatingbrowser"
+    namespace = "com.mmckb.browser"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.manus.floatingbrowser"
+        applicationId = "com.mmckb.browser"
         minSdk = 24
         targetSdk = 36
         versionCode = 15
@@ -31,7 +31,7 @@ android {
     buildTypes {
         debug {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("release")
+            // 使用默认 debug keystore，避免本地构建依赖未提交的发布密钥。
         }
         release {
             isMinifyEnabled = false
