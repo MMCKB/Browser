@@ -96,6 +96,7 @@ class MainActivity : AppCompatActivity() {
     private data class Palette(
         val page: Int,
         val card: Int,
+        val cardTranslucent: Int,
         val cardStroke: Int,
         val group: Int,
         val input: Int,
@@ -224,6 +225,8 @@ class MainActivity : AppCompatActivity() {
                 // 深色模式：纯深灰黑毛玻璃，蓝调仅保留在 accent
                 page = Color.rgb(18, 18, 20),
                 card = Color.argb(210, 36, 36, 39),
+                // 半透明毛玻璃：alpha 降低至 160，让 tab 栏区域透出内容
+                cardTranslucent = Color.argb(160, 36, 36, 39),
                 cardStroke = Color.argb(90, 80, 80, 84),
                 group = Color.WHITE,
                 input = Color.rgb(248, 248, 250),
@@ -243,6 +246,8 @@ class MainActivity : AppCompatActivity() {
                 // card 作为厚毛玻璃底座 — 高透明度纯白
                 page = Color.rgb(247, 247, 250),
                 card = Color.argb(235, 252, 252, 253),
+                // 半透明毛玻璃：alpha 降至 160，让 tab 栏区域透出网页内容
+                cardTranslucent = Color.argb(160, 252, 252, 253),
                 cardStroke = Color.argb(70, 200, 200, 204),
                 // group 交互底座 — 实体白，不透光，不叠在透光层上
                 group = Color.WHITE,
@@ -290,8 +295,9 @@ class MainActivity : AppCompatActivity() {
             radius = dp(20).toFloat()
             // 材质：底部栏作为主厚毛玻璃层 — 层级低于工具栏
             cardElevation = dp(4).toFloat()
-            // 材质：高透明度纯白毛玻璃底座
-            setCardBackgroundColor(palette.card)
+            // 材质：半透明毛玻璃底座 — 让内容在其下滚动透出
+            // alpha 从 235 降至 160，tab 栏区域可透出网页内容
+            setCardBackgroundColor(palette.cardTranslucent)
             strokeColor = palette.cardStroke
             strokeWidth = dp(1)
             addView(LinearLayout(this@MainActivity).apply {
