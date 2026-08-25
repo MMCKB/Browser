@@ -844,7 +844,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     // --- 流畅交互：弹簧动画 ---
-    private fun springAnimation(view: View, property: Float, finalValue: Float, damping: Float = 0.7f): SpringAnimation {
+    private fun springAnimation(view: View, property: androidx.dynamicanimation.animation.FloatPropertyCompat<View>, finalValue: Float, damping: Float = 0.7f): SpringAnimation {
         val spring = SpringForce(finalValue).apply {
             dampingRatio = damping
             stiffness = SpringForce.STIFFNESS_LOW
