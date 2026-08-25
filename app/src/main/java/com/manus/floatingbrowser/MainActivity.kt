@@ -47,6 +47,8 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.PopupMenu
 import androidx.appcompat.widget.SwitchCompat
 import androidx.core.content.ContextCompat
+import androidx.dynamicanimation.animation.SpringAnimation
+import androidx.dynamicanimation.animation.SpringForce
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
 import kotlin.math.roundToInt
@@ -723,6 +725,8 @@ class MainActivity : AppCompatActivity() {
         val palette = currentPalette()
         tabToolsOverlay = FrameLayout(this).apply {
             isClickable = true
+            alpha = 0f
+            setBackgroundColor(Color.argb(90, 0, 0, 0))
             setOnClickListener { hideTabTools() }
         }
         val toolbar = MaterialCardView(this).apply {
@@ -782,11 +786,29 @@ class MainActivity : AppCompatActivity() {
             tabToolsOverlay,
             FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
         )
+        // 流畅交互：遮罩淡入
+        tabToolsOverlay.animate().alpha(1f).setDuration(200).setInterpolator(android.view.animation.DecelerateInterpolator()).start()
         toolbar.post {
             toolbar.pivotX = toolbar.width / 2f
             toolbar.pivotY = toolbar.height.toFloat()
-            toolbar.animate().alpha(1f).scaleX(1f).scaleY(1f).translationY(0f)
-                .setDuration(240).setInterpolator(android.view.animation.DecelerateInterpolator()).start()
+            // 流畅交互：弹簧动画展开
+            springAnimation(toolbar, SpringAnimation.ALPHA, 1f, 0.75f).start()
+            springAnimation(toolbar, SpringAnimation.SCALE_X, 1f, 0.7f).start()
+            springAnimation(toolbar, SpringAnimation.SCALE_Y, 1f, 0.7f).start()
+            springAnimation(toolbar, SpringAnimation.TRANSLATION_Y, 0f, 0.7f).start()
+            // 流畅交互：按钮错开出现
+            val contentView = toolbar.getChildAt(0) as? LinearLayout
+            contentView?.let { container ->
+                for (i in 0 until container.childCount) {
+                    val row = container.getChildAt(i)
+                    row.alpha = 0f
+                    row.translationY = dp(12).toFloat()
+                    row.postDelayed({
+                        springAnimation(row, SpringAnimation.ALPHA, 1f, 0.8f).start()
+                        springAnimation(row, SpringAnimation.TRANSLATION_Y, 0f, 0.8f).start()
+                    }, 60L + i * 50L)
+                }
+            }
         }
     }
 
@@ -808,6 +830,8 @@ class MainActivity : AppCompatActivity() {
             layoutParams = LinearLayout.LayoutParams(0, dp(48), 1f).apply {
                 setMargins(dp(2), dp(2), dp(2), dp(2))
             }
+            // 流畅交互：按压反馈
+            applyPressButtonFeedback(this)
             setOnClickListener { onClick(it) }
         }
     }
@@ -819,17 +843,69 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // --- 流畅交互：弹簧动画 ---
+    private fun springAnimation(view: View, property: Float, finalValue: Float, damping: Float = 0.7f): SpringAnimation {
+        val spring = SpringForce(finalValue).apply {
+            dampingRatio = damping
+            stiffness = SpringForce.STIFFNESS_LOW
+        }
+        return SpringAnimation(view, property).apply { springForce = spring }
+    }
+
+    // --- 流畅交互：按压反馈 ---
+    private fun applyPressFeedback(view: View) {
+        view.setOnTouchListener { v, event ->
+            when (event.action) {
+                android.view.MotionEvent.ACTION_DOWN -> {
+                    v.animate().scaleX(0.95f).scaleY(0.95f).setDuration(80)
+                        .setInterpolator(android.view.animation.DecelerateInterpolator()).start()
+                }
+                android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> {
+                    v.animate().scaleX(1f).scaleY(1f).setDuration(120)
+                        .setInterpolator(android.view.animation.OvershootInterpolator(1.2f)).start()
+                    if (event.action == android.view.MotionEvent.ACTION_UP) {
+                        v.performClick()
+                    }
+                }
+            }
+            false
+        }
+    }
+
+    // 按压反馈（不触发点击，配合已有 onClickListener）
+    private fun applyPressButtonFeedback(view: View) {
+        view.setOnTouchListener { v, event ->
+            when (event.action) {
+                android.view.MotionEvent.ACTION_DOWN -> {
+                    v.animate().scaleX(0.95f).scaleY(0.95f).setDuration(80)
+                        .setInterpolator(android.view.animation.DecelerateInterpolator()).start()
+                }
+                android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> {
+                    v.animate().scaleX(1f).scaleY(1f).setDuration(120)
+                        .setInterpolator(android.view.animation.OvershootInterpolator(1.2f)).start()
+                }
+            }
+            false
+        }
+    }
+
     private fun hideTabTools(after: () -> Unit = {}) {
         if (!::tabToolsOverlay.isInitialized || tabToolsOverlay.parent == null) {
             after()
             return
         }
         val toolbar = tabToolsOverlay.getChildAt(0)
-        toolbar.animate().alpha(0f).scaleX(0.86f).scaleY(0.86f).translationY(dp(30).toFloat()).setDuration(170)
-            .withEndAction {
-                if (tabToolsOverlay.parent != null) root.removeView(tabToolsOverlay)
-                after()
-            }.start()
+        // 流畅交互：弹簧动画收起 + 遮罩淡出
+        tabToolsOverlay.animate().alpha(0f).setDuration(180).setInterpolator(android.view.animation.AccelerateInterpolator()).start()
+        springAnimation(toolbar, SpringAnimation.ALPHA, 0f, 0.85f).start()
+        springAnimation(toolbar, SpringAnimation.SCALE_X, 0.86f, 0.85f).start()
+        springAnimation(toolbar, SpringAnimation.SCALE_Y, 0.86f, 0.85f).start()
+        springAnimation(toolbar, SpringAnimation.TRANSLATION_Y, dp(30).toFloat(), 0.85f).start()
+        // 延迟移除视图（等待弹簧动画基本完成）
+        toolbar.postDelayed({
+            if (tabToolsOverlay.parent != null) root.removeView(tabToolsOverlay)
+            after()
+        }, 200L)
     }
 
     private fun enqueueWebDownload(url: String, userAgent: String, contentDisposition: String?, mimeType: String?) {
