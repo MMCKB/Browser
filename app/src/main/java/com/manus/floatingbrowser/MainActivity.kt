@@ -47,8 +47,6 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.PopupMenu
 import androidx.appcompat.widget.SwitchCompat
 import androidx.core.content.ContextCompat
-import androidx.dynamicanimation.animation.SpringAnimation
-import androidx.dynamicanimation.animation.SpringForce
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
 import kotlin.math.roundToInt
@@ -791,11 +789,8 @@ class MainActivity : AppCompatActivity() {
         toolbar.post {
             toolbar.pivotX = toolbar.width / 2f
             toolbar.pivotY = toolbar.height.toFloat()
-            // 流畅交互：弹簧动画展开
-            springAnimation(toolbar, SpringAnimation.ALPHA, 1f, 0.75f).start()
-            springAnimation(toolbar, SpringAnimation.SCALE_X, 1f, 0.7f).start()
-            springAnimation(toolbar, SpringAnimation.SCALE_Y, 1f, 0.7f).start()
-            springAnimation(toolbar, SpringAnimation.TRANSLATION_Y, 0f, 0.7f).start()
+            // 流畅交互：弹簧式展开
+            springAppear(toolbar, 0.7f)
             // 流畅交互：按钮错开出现
             val contentView = toolbar.getChildAt(0) as? LinearLayout
             contentView?.let { container ->
@@ -804,8 +799,7 @@ class MainActivity : AppCompatActivity() {
                     row.alpha = 0f
                     row.translationY = dp(12).toFloat()
                     row.postDelayed({
-                        springAnimation(row, SpringAnimation.ALPHA, 1f, 0.8f).start()
-                        springAnimation(row, SpringAnimation.TRANSLATION_Y, 0f, 0.8f).start()
+                        springAppear(row, 0.8f)
                     }, 60L + i * 50L)
                 }
             }
@@ -843,14 +837,19 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // --- 流畅交互：弹簧动画 ---
-    private fun springAnimation(view: View, property: androidx.dynamicanimation.animation.FloatPropertyCompat<View>, finalValue: Float, damping: Float = 0.7f): SpringAnimation {
-        val spring = SpringForce(finalValue)
-        spring.stiffness = SpringForce.STIFFNESS_LOW
-        spring.dampingRatio = damping
-        val anim = SpringAnimation(view, property, finalValue)
-        anim.setSpringForce(spring)
-        return anim
+    // --- 流畅交互：弹簧动画（使用 ViewPropertyAnimator + OvershootInterpolator） ---
+    private fun springAppear(view: View, damping: Float = 0.7f) {
+        view.animate().alpha(1f).scaleX(1f).scaleY(1f).translationY(0f)
+            .setDuration((200 + (1f - damping) * 100).toLong())
+            .setInterpolator(android.view.animation.OvershootInterpolator(1.0f + damping * 0.4f))
+            .start()
+    }
+
+    private fun springDismiss(view: View, targetScale: Float = 0.86f, targetY: Float = 30f, damping: Float = 0.85f) {
+        view.animate().alpha(0f).scaleX(targetScale).scaleY(targetScale).translationY(dp(targetY).toFloat())
+            .setDuration((160 + (1f - damping) * 60).toLong())
+            .setInterpolator(android.view.animation.AccelerateInterpolator())
+            .start()
     }
 
     // --- 流畅交互：按压反馈 ---
@@ -896,13 +895,10 @@ class MainActivity : AppCompatActivity() {
             return
         }
         val toolbar = tabToolsOverlay.getChildAt(0)
-        // 流畅交互：弹簧动画收起 + 遮罩淡出
+        // 流畅交互：弹簧式收起 + 遮罩淡出
         tabToolsOverlay.animate().alpha(0f).setDuration(180).setInterpolator(android.view.animation.AccelerateInterpolator()).start()
-        springAnimation(toolbar, SpringAnimation.ALPHA, 0f, 0.85f).start()
-        springAnimation(toolbar, SpringAnimation.SCALE_X, 0.86f, 0.85f).start()
-        springAnimation(toolbar, SpringAnimation.SCALE_Y, 0.86f, 0.85f).start()
-        springAnimation(toolbar, SpringAnimation.TRANSLATION_Y, dp(30).toFloat(), 0.85f).start()
-        // 延迟移除视图（等待弹簧动画基本完成）
+        springDismiss(toolbar, 0.86f, 30f, 0.85f)
+        // 延迟移除视图（等待动画基本完成）
         toolbar.postDelayed({
             if (tabToolsOverlay.parent != null) root.removeView(tabToolsOverlay)
             after()
