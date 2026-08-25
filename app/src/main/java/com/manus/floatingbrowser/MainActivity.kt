@@ -726,14 +726,17 @@ class MainActivity : AppCompatActivity() {
         tabStrip.removeAllViews()
         tabs.forEach { tab ->
             val selected = tab.id == activeTabId
+            // 材质：透明 tab 栏 — 毛玻璃底座直接透出，无需叠层
+            // 仅用极细边框标识可交互区域，不堆叠透光层
             val chip = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
                 setPadding(dp(9), 0, dp(2), 0)
+                // 材质：透明背景，仅保留 1dp 细边框作为交互提示
                 background = roundedBackground(
-                    if (selected) palette.selectedChip else palette.chip,
+                    Color.TRANSPARENT,
                     dp(13),
-                    if (selected) palette.cardStroke else Color.TRANSPARENT
+                    if (selected) palette.cardStroke else Color.argb(40, 180, 180, 184)
                 )
                 contentDescription = "${tab.title} 标签页"
                 setOnClickListener { selectTab(tab.id) }
