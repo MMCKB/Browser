@@ -293,11 +293,10 @@ class MainActivity : AppCompatActivity() {
         val palette = currentPalette()
         return MaterialCardView(this).apply {
             radius = dp(20).toFloat()
-            // 材质：底部栏作为主厚毛玻璃层 — 层级低于工具栏
+            // 材质：浮动容器，零背景 — 控件浮于网页之上
             cardElevation = dp(4).toFloat()
-            // 材质：半透明毛玻璃底座 — 让内容在其下滚动透出
-            // alpha 从 235 降至 160，tab 栏区域可透出网页内容
-            setCardBackgroundColor(palette.cardTranslucent)
+            // tab 栏区域完全透明，仅控件自身携带背景
+            setCardBackgroundColor(Color.TRANSPARENT)
             strokeColor = palette.cardStroke
             strokeWidth = dp(1)
             addView(LinearLayout(this@MainActivity).apply {
