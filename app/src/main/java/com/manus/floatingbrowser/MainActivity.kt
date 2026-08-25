@@ -737,46 +737,75 @@ class MainActivity : AppCompatActivity() {
             translationY = dp(30).toFloat()
             setOnClickListener { /* 点击菜单自身不关闭。 */ }
 
-            // 工具栏内容：2行5列的 GridLayout
-            addView(android.widget.GridLayout(this@MainActivity).apply {
-                columnCount = 5
-                rowCount = 2
-                setPadding(dp(8), dp(8), dp(8), dp(8))
-                // 第一行
-                addView(tabToolTile("☆", "添加书签") { toggleBookmark(); hideTabTools() })
-                addView(tabToolTile("⇩", "下载管理") { hideTabTools { showDownloadsOverlay() } })
-                addView(tabToolTile("↗", "分享") { shareCurrentUrl(); hideTabTools() })
-                addView(tabToolTile("⧉", "复制网址") { copyCurrentUrl(); hideTabTools() })
-                addView(tabToolTile("⌫", "清除缓存") { clearCurrentPageCache(); hideTabTools() })
-                // 第二行
-                addView(tabToolTile("⌂", "回到主页") { activeTab?.let(::showHome); hideTabTools() })
-                addView(tabToolTile("×", "关闭标签") { activeTab?.let { closeTab(it.id) }; hideTabTools() })
-                addView(tabToolTile("↻", "刷新") { activeTab?.webView?.reload(); hideTabTools() })
-                addView(tabToolTile("⚙", "设置") { settingsButton ->
-                    val point = captureAnchor(settingsButton)
-                    hideTabTools { showSettings(point) }
-                })
-                addView(tabToolTile("⏶", "收起") { hideTabTools() })
-            })
-        }
+            // 工具栏内容：垂直布局
+            addView(LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(10), dp(10), dp(10), dp(10))
 
-        // 关闭应用按钮（右下角）
-        val closeAppButton = MaterialButton(this@MainActivity).apply {
-            text = "⏻"
-            textSize = 14f
-            contentDescription = "关闭应用"
-            minWidth = 0
-            minHeight = 0
-            insetTop = 0
-            insetBottom = 0
-            setPadding(dp(8), dp(4), dp(8), dp(4))
-            cornerRadius = dp(12)
-            backgroundTintList = ColorStateList.valueOf(palette.group)
-            setTextColor(palette.icon)
-            layoutParams = FrameLayout.LayoutParams(dp(36), dp(36), Gravity.BOTTOM or Gravity.END).apply {
-                setMargins(0, 0, dp(16), dp(if (tabLayoutMode == TabLayoutMode.FULL) 150 else 110))
-            }
-            setOnClickListener { finish() }
+                // 功能按钮：2行4列 GridLayout
+                addView(android.widget.GridLayout(this@MainActivity).apply {
+                    columnCount = 4
+                    rowCount = 2
+                    // 第一行
+                    addView(tabToolTile("☆", "添加书签") { toggleBookmark(); hideTabTools() })
+                    addView(tabToolTile("⇩", "下载") { hideTabTools { showDownloadsOverlay() } })
+                    addView(tabToolTile("↗", "分享") { shareCurrentUrl(); hideTabTools() })
+                    addView(tabToolTile("⧉", "复制") { copyCurrentUrl(); hideTabTools() })
+                    // 第二行
+                    addView(tabToolTile("⌫", "清缓存") { clearCurrentPageCache(); hideTabTools() })
+                    addView(tabToolTile("⌂", "主页") { activeTab?.let(::showHome); hideTabTools() })
+                    addView(tabToolTile("↻", "刷新") { activeTab?.webView?.reload(); hideTabTools() })
+                    addView(tabToolTile("⚙", "设置") { settingsButton ->
+                        val point = captureAnchor(settingsButton)
+                        hideTabTools { showSettings(point) }
+                    })
+                }, LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    dp(130)
+                ))
+
+                // 底部行：收起和关闭按钮（右对齐）
+                addView(LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.END
+                    topMargin = dp(8)
+                    addView(MaterialButton(this@MainActivity).apply {
+                        text = "⏶"
+                        textSize = 16f
+                        contentDescription = "收起"
+                        minWidth = 0
+                        minHeight = 0
+                        insetTop = 0
+                        insetBottom = 0
+                        setPadding(dp(8), dp(6), dp(8), dp(6))
+                        cornerRadius = dp(14)
+                        backgroundTintList = ColorStateList.valueOf(palette.group)
+                        setTextColor(palette.icon)
+                        layoutParams = LinearLayout.LayoutParams(dp(44), dp(44)).apply {
+                            marginEnd = dp(8)
+                        }
+                        setOnClickListener { hideTabTools() }
+                    })
+                    addView(MaterialButton(this@MainActivity).apply {
+                        text = "⏻"
+                        textSize = 16f
+                        contentDescription = "关闭应用"
+                        minWidth = 0
+                        minHeight = 0
+                        insetTop = 0
+                        insetBottom = 0
+                        setPadding(dp(8), dp(6), dp(8), dp(6))
+                        cornerRadius = dp(14)
+                        backgroundTintList = ColorStateList.valueOf(palette.group)
+                        setTextColor(palette.icon)
+                        layoutParams = LinearLayout.LayoutParams(dp(44), dp(44))
+                        setOnClickListener { finish() }
+                    })
+                }, LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ))
+            })
         }
 
         tabToolsOverlay.addView(
@@ -786,10 +815,9 @@ class MainActivity : AppCompatActivity() {
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 Gravity.BOTTOM
             ).apply {
-                setMargins(dp(12), 0, dp(12), dp(if (tabLayoutMode == TabLayoutMode.FULL) 106 else 62))
+                setMargins(dp(8), 0, dp(8), dp(if (tabLayoutMode == TabLayoutMode.FULL) 106 else 62))
             }
         )
-        tabToolsOverlay.addView(closeAppButton)
         root.addView(
             tabToolsOverlay,
             FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
@@ -813,14 +841,14 @@ class MainActivity : AppCompatActivity() {
             minHeight = 0
             insetTop = 0
             insetBottom = 0
-            setPadding(dp(2), dp(2), dp(2), dp(2))
+            setPadding(dp(4), dp(4), dp(4), dp(4))
             cornerRadius = dp(12)
             backgroundTintList = ColorStateList.valueOf(palette.group)
             setTextColor(palette.icon)
             layoutParams = android.widget.GridLayout.LayoutParams().apply {
-                width = dp(64)
-                height = dp(52)
-                setMargins(dp(2), dp(2), dp(2), dp(2))
+                width = dp(80)
+                height = dp(58)
+                setMargins(dp(3), dp(3), dp(3), dp(3))
             }
             setOnClickListener { onClick(it) }
         }
