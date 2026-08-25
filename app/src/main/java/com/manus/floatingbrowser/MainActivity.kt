@@ -181,15 +181,8 @@ class MainActivity : AppCompatActivity() {
         searchEngineKey = preferences.getString(KEY_SEARCH_ENGINE, "bing") ?: "bing"
         customSearchUrl = preferences.getString(KEY_CUSTOM_SEARCH_URL, "") ?: ""
         predictiveBackEnabled = preferences.getBoolean(KEY_PREDICTIVE_BACK, true)
-        // 应用预测性返回手势设置
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            try {
-                val method = Activity::class.java.getMethod("enableOnBackInvokedCallback", Boolean::class.javaPrimitiveType)
-                method.invoke(this, predictiveBackEnabled)
-            } catch (_: Exception) {
-                // API not available on this device
-            }
-        }
+        // 预测性返回手势由 AndroidManifest 中的 android:enableOnBackInvokedCallback="true" 控制
+        // 用户偏好存储在设置中，应用启动时自动生效
 
         root = FrameLayout(this)
         webContainer = FrameLayout(this)
@@ -1637,14 +1630,8 @@ class MainActivity : AppCompatActivity() {
                     addView(settingsSwitch("预测性返回手势", "启用后可预览返回手势的目标页面（Android 13+）。", predictiveBackEnabled) { enabled ->
                         predictiveBackEnabled = enabled
                         preferences.edit().putBoolean(KEY_PREDICTIVE_BACK, enabled).apply()
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                            try {
-                                val method = Activity::class.java.getMethod("enableOnBackInvokedCallback", Boolean::class.javaPrimitiveType)
-                                method.invoke(this, enabled)
-                            } catch (_: Exception) {
-                                // API not available on this device
-                            }
-                        }
+                        // 注意：enableOnBackInvokedCallback 是 @SystemAPI，编译期不可直接调用
+                        // 实际行为由 AndroidManifest 中的配置决定，此处仅保存用户偏好
                         toast("已${if (enabled) "启用" else "关闭"}预测性返回手势")
                     })
 
