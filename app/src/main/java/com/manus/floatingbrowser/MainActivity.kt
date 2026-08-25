@@ -746,6 +746,8 @@ class MainActivity : AppCompatActivity() {
                 addView(android.widget.GridLayout(this@MainActivity).apply {
                     columnCount = 4
                     rowCount = 2
+                    stretchMode = android.widget.GridLayout.STRETCH_COLUMN_WIDTH
+                    useDefaultMargins = false
                     // 第一行
                     addView(tabToolTile("☆", "添加书签") { toggleBookmark(); hideTabTools() })
                     addView(tabToolTile("⇩", "下载") { hideTabTools { showDownloadsOverlay() } })
@@ -849,8 +851,10 @@ class MainActivity : AppCompatActivity() {
             backgroundTintList = ColorStateList.valueOf(palette.group)
             setTextColor(palette.icon)
             layoutParams = android.widget.GridLayout.LayoutParams().apply {
-                width = dp(68)
+                width = 0
                 height = dp(48)
+                columnSpec = android.widget.GridLayout.spec(android.widget.GridLayout.UNDEFINED, 1, 1f)
+                rowSpec = android.widget.GridLayout.spec(android.widget.GridLayout.UNDEFINED, 1, 1f)
                 setMargins(dp(2), dp(2), dp(2), dp(2))
             }
             setOnClickListener { onClick(it) }
