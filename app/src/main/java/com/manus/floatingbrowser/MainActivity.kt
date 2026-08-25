@@ -758,7 +758,7 @@ class MainActivity : AppCompatActivity() {
                 ))
 
                 // 页码指示器
-                addView(LinearLayout(this@MainActivity).also { indicator = it }.apply {
+                addView(LinearLayout(this@MainActivity).apply {
                     orientation = LinearLayout.HORIZONTAL
                     gravity = Gravity.CENTER
                     tag = "pageIndicator"
@@ -1647,22 +1647,22 @@ class MainActivity : AppCompatActivity() {
 
     // ViewPager2 Adapter for toolbar pages
     private inner class ToolbarPagerAdapter(activity: MainActivity) : RecyclerView.Adapter<ToolbarPagerAdapter.PageViewHolder>() {
-        private val pages = listOf(
+        private val pages: List<List<Triple<String, String, (View) -> Unit>>> = listOf(
             // 第一页：常用功能
             listOf(
-                Triple("☆", "添加书签") { toggleBookmark(); hideTabTools() },
-                Triple("⇩", "下载管理") { hideTabTools { showDownloadsOverlay() } },
-                Triple("↗", "分享") { shareCurrentUrl(); hideTabTools() },
-                Triple("⧉", "复制网址") { copyCurrentUrl(); hideTabTools() },
-                Triple("⌫", "清除缓存") { clearCurrentPageCache(); hideTabTools() },
-                Triple("⌂", "回到主页") { activeTab?.let(::showHome); hideTabTools() },
-                Triple("×", "关闭标签") { activeTab?.let { closeTab(it.id) }; hideTabTools() },
-                Triple("↻", "刷新") { activeTab?.webView?.reload(); hideTabTools() },
-                Triple("⚙", "设置") { settingsButton ->
+                Triple("☆", "添加书签") { _: View -> toggleBookmark(); hideTabTools() },
+                Triple("⇩", "下载管理") { _: View -> hideTabTools { showDownloadsOverlay() } },
+                Triple("↗", "分享") { _: View -> shareCurrentUrl(); hideTabTools() },
+                Triple("⧉", "复制网址") { _: View -> copyCurrentUrl(); hideTabTools() },
+                Triple("⌫", "清除缓存") { _: View -> clearCurrentPageCache(); hideTabTools() },
+                Triple("⌂", "回到主页") { _: View -> activeTab?.let(::showHome); hideTabTools() },
+                Triple("×", "关闭标签") { _: View -> activeTab?.let { closeTab(it.id) }; hideTabTools() },
+                Triple("↻", "刷新") { _: View -> activeTab?.webView?.reload(); hideTabTools() },
+                Triple("⚙", "设置") { settingsButton: View ->
                     val point = captureAnchor(settingsButton)
                     hideTabTools { showSettings(point) }
                 },
-                Triple("◯", "无痕模式") { hideTabTools() }
+                Triple("◯", "无痕模式") { _: View -> hideTabTools() }
             )
             // 可以添加更多页面...
         )
