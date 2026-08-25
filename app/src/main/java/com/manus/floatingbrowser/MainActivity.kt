@@ -832,11 +832,8 @@ class MainActivity : AppCompatActivity() {
             // 材质：半透明按钮 + 层级阴影
             backgroundTintList = ColorStateList.valueOf(Color.argb(170, Color.red(palette.group), Color.green(palette.group), Color.blue(palette.group)))
             setTextColor(palette.icon)
-            // 材质：按钮浮起感
-            compatElevation = dp(2).toFloat()
-            stateListAnimator = android.animation.ObjectAnimator.ofFloat(this, "translationZ", 0f, 0f).apply {
-                duration = 0
-            }
+            // 材质：按钮浮起感（Z轴高度）
+            translationZ = dp(2).toFloat()
             layoutParams = LinearLayout.LayoutParams(0, dp(48), 1f).apply {
                 setMargins(dp(2), dp(2), dp(2), dp(2))
             }
