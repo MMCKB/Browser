@@ -740,7 +740,7 @@ class MainActivity : AppCompatActivity() {
             // 工具栏内容：垂直布局
             addView(LinearLayout(this@MainActivity).apply {
                 orientation = LinearLayout.VERTICAL
-                setPadding(dp(8), dp(8), dp(8), dp(8))
+                setPadding(dp(8), dp(6), dp(8), dp(10))
 
                 // 功能按钮：2行4列
                 addView(buildTabToolRow(
