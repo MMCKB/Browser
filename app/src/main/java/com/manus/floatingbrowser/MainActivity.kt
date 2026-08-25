@@ -761,7 +761,7 @@ class MainActivity : AppCompatActivity() {
                     })
                 }, LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
-                    dp(130)
+                    dp(116)
                 ))
 
                 // 底部行：收起和关闭按钮（右对齐）
@@ -771,37 +771,37 @@ class MainActivity : AppCompatActivity() {
                     layoutParams = LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.WRAP_CONTENT
-                    ).apply { topMargin = dp(8) }
+                    ).apply { topMargin = dp(6) }
                     addView(MaterialButton(this@MainActivity).apply {
-                        text = "收起"
-                        textSize = 12f
-                        contentDescription = "收起工具栏"
+                        text = "⏶"
+                        textSize = 14f
+                        contentDescription = "收起"
                         minWidth = 0
                         minHeight = 0
                         insetTop = 0
                         insetBottom = 0
-                        setPadding(dp(8), dp(6), dp(8), dp(6))
-                        cornerRadius = dp(14)
+                        setPadding(dp(6), dp(4), dp(6), dp(4))
+                        cornerRadius = dp(12)
                         backgroundTintList = ColorStateList.valueOf(palette.group)
                         setTextColor(palette.icon)
-                        layoutParams = LinearLayout.LayoutParams(dp(56), dp(44)).apply {
-                            marginEnd = dp(8)
+                        layoutParams = LinearLayout.LayoutParams(dp(36), dp(36)).apply {
+                            marginEnd = dp(6)
                         }
                         setOnClickListener { hideTabTools() }
                     })
                     addView(MaterialButton(this@MainActivity).apply {
-                        text = "退出"
-                        textSize = 12f
+                        text = "⏻"
+                        textSize = 14f
                         contentDescription = "关闭应用"
                         minWidth = 0
                         minHeight = 0
                         insetTop = 0
                         insetBottom = 0
-                        setPadding(dp(8), dp(6), dp(8), dp(6))
-                        cornerRadius = dp(14)
+                        setPadding(dp(6), dp(4), dp(6), dp(4))
+                        cornerRadius = dp(12)
                         backgroundTintList = ColorStateList.valueOf(palette.group)
                         setTextColor(palette.icon)
-                        layoutParams = LinearLayout.LayoutParams(dp(56), dp(44))
+                        layoutParams = LinearLayout.LayoutParams(dp(36), dp(36))
                         setOnClickListener { finish() }
                     })
                 }, LinearLayout.LayoutParams(
@@ -849,8 +849,8 @@ class MainActivity : AppCompatActivity() {
             backgroundTintList = ColorStateList.valueOf(palette.group)
             setTextColor(palette.icon)
             layoutParams = android.widget.GridLayout.LayoutParams().apply {
-                width = dp(72)
-                height = dp(52)
+                width = dp(68)
+                height = dp(48)
                 setMargins(dp(2), dp(2), dp(2), dp(2))
             }
             setOnClickListener { onClick(it) }
