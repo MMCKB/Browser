@@ -293,12 +293,12 @@ class MainActivity : AppCompatActivity() {
         val palette = currentPalette()
         return MaterialCardView(this).apply {
             radius = dp(20).toFloat()
-            // 材质：浮动容器，零背景 — 控件浮于网页之上
-            cardElevation = dp(4).toFloat()
-            // tab 栏区域完全透明，仅控件自身携带背景
+            // 材质：浮动容器，零背景零阴影 — 控件独立浮于网页之上
+            cardElevation = 0f
+            // 无填充、无边框、无阴影 — 彻底消除卡片感
             setCardBackgroundColor(Color.TRANSPARENT)
-            strokeColor = palette.cardStroke
-            strokeWidth = dp(1)
+            strokeColor = Color.TRANSPARENT
+            strokeWidth = 0
             addView(LinearLayout(this@MainActivity).apply {
                 orientation = LinearLayout.VERTICAL
                 setPadding(dp(5), dp(5), dp(5), dp(5))
