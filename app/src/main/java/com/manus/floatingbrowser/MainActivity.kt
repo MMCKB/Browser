@@ -772,7 +772,7 @@ class MainActivity : AppCompatActivity() {
                     layoutParams = LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.WRAP_CONTENT
-                    ).apply { topMargin = dp(10) }
+                    ).apply { topMargin = dp(15) }
                     addView(MaterialButton(this@MainActivity).apply {
                         text = "⏶"
                         textSize = 14f
