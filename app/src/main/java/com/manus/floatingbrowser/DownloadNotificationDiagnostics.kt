@@ -18,4 +18,8 @@ object DownloadNotificationDiagnostics {
         return prefs(context).getString(KEY_LATEST, "暂无诊断记录")
             ?: "暂无诊断记录"
     }
+
+    // 保留向后兼容（通知功能已移除，但代码引用仍在）
+    fun postDownloadProbe(context: Context, downloadId: Long): Boolean = false
+    fun cancelProgress(context: Context) {}
 }
