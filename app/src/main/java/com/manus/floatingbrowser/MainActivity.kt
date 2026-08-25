@@ -845,7 +845,7 @@ class MainActivity : AppCompatActivity() {
             .start()
     }
 
-    private fun springDismiss(view: View, targetScale: Float = 0.86f, targetY: Float = 30f, damping: Float = 0.85f) {
+    private fun springDismiss(view: View, targetScale: Float = 0.86f, targetY: Int = 30, damping: Float = 0.85f) {
         view.animate().alpha(0f).scaleX(targetScale).scaleY(targetScale).translationY(dp(targetY).toFloat())
             .setDuration((160 + (1f - damping) * 60).toLong())
             .setInterpolator(android.view.animation.AccelerateInterpolator())
