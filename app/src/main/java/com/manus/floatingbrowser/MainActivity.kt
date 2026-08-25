@@ -740,7 +740,7 @@ class MainActivity : AppCompatActivity() {
             // 工具栏内容：垂直布局
             addView(LinearLayout(this@MainActivity).apply {
                 orientation = LinearLayout.VERTICAL
-                setPadding(dp(8), dp(3), dp(8), dp(13))
+                setPadding(dp(8), dp(3), dp(8), dp(8))
 
                 // 功能按钮：2行4列
                 addView(buildTabToolRow(
@@ -765,50 +765,6 @@ class MainActivity : AppCompatActivity() {
                     dp(48)
                 ).apply { topMargin = dp(9) })
 
-                // 底部行：收起和关闭按钮（右对齐）
-                addView(LinearLayout(this@MainActivity).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    gravity = Gravity.END
-                    layoutParams = LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.WRAP_CONTENT
-                    ).apply { topMargin = dp(5) }
-                    addView(MaterialButton(this@MainActivity).apply {
-                        text = "⏶"
-                        textSize = 14f
-                        contentDescription = "收起"
-                        minWidth = 0
-                        minHeight = 0
-                        insetTop = 0
-                        insetBottom = 0
-                        setPadding(dp(6), dp(4), dp(6), dp(4))
-                        cornerRadius = dp(12)
-                        backgroundTintList = ColorStateList.valueOf(palette.group)
-                        setTextColor(palette.icon)
-                        layoutParams = LinearLayout.LayoutParams(dp(36), dp(36)).apply {
-                            marginEnd = dp(6)
-                        }
-                        setOnClickListener { hideTabTools() }
-                    })
-                    addView(MaterialButton(this@MainActivity).apply {
-                        text = "⏻"
-                        textSize = 14f
-                        contentDescription = "关闭应用"
-                        minWidth = 0
-                        minHeight = 0
-                        insetTop = 0
-                        insetBottom = 0
-                        setPadding(dp(6), dp(4), dp(6), dp(4))
-                        cornerRadius = dp(12)
-                        backgroundTintList = ColorStateList.valueOf(palette.group)
-                        setTextColor(palette.icon)
-                        layoutParams = LinearLayout.LayoutParams(dp(36), dp(36))
-                        setOnClickListener { finish() }
-                    })
-                }, LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT
-                ))
             })
         }
 
