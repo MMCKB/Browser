@@ -742,29 +742,28 @@ class MainActivity : AppCompatActivity() {
                 orientation = LinearLayout.VERTICAL
                 setPadding(dp(8), dp(8), dp(8), dp(8))
 
-                // 功能按钮：2行4列 GridLayout
-                addView(android.widget.GridLayout(this@MainActivity).apply {
-                    columnCount = 4
-                    rowCount = 2
-                    stretchMode = android.widget.GridLayout.STRETCH_COLUMN_WIDTH
-                    useDefaultMargins = false
-                    // 第一行
-                    addView(tabToolTile("☆", "添加书签") { toggleBookmark(); hideTabTools() })
-                    addView(tabToolTile("⇩", "下载") { hideTabTools { showDownloadsOverlay() } })
-                    addView(tabToolTile("↗", "分享") { shareCurrentUrl(); hideTabTools() })
-                    addView(tabToolTile("⧉", "复制") { copyCurrentUrl(); hideTabTools() })
-                    // 第二行
-                    addView(tabToolTile("⌫", "清缓存") { clearCurrentPageCache(); hideTabTools() })
-                    addView(tabToolTile("⌂", "主页") { activeTab?.let(::showHome); hideTabTools() })
-                    addView(tabToolTile("↻", "刷新") { activeTab?.webView?.reload(); hideTabTools() })
-                    addView(tabToolTile("⚙", "设置") { settingsButton ->
+                // 功能按钮：2行4列
+                addView(buildTabToolRow(
+                    tabToolTile("☆", "添加书签") { toggleBookmark(); hideTabTools() },
+                    tabToolTile("⇩", "下载") { hideTabTools { showDownloadsOverlay() } },
+                    tabToolTile("↗", "分享") { shareCurrentUrl(); hideTabTools() },
+                    tabToolTile("⧉", "复制") { copyCurrentUrl(); hideTabTools() }
+                ), LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    dp(48)
+                ))
+                addView(buildTabToolRow(
+                    tabToolTile("⌫", "清缓存") { clearCurrentPageCache(); hideTabTools() },
+                    tabToolTile("⌂", "主页") { activeTab?.let(::showHome); hideTabTools() },
+                    tabToolTile("↻", "刷新") { activeTab?.webView?.reload(); hideTabTools() },
+                    tabToolTile("⚙", "设置") { settingsButton ->
                         val point = captureAnchor(settingsButton)
                         hideTabTools { showSettings(point) }
-                    })
-                }, LinearLayout.LayoutParams(
+                    }
+                ), LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
-                    dp(116)
-                ))
+                    dp(48)
+                ).apply { topMargin = dp(4) })
 
                 // 底部行：收起和关闭按钮（右对齐）
                 addView(LinearLayout(this@MainActivity).apply {
@@ -850,14 +849,17 @@ class MainActivity : AppCompatActivity() {
             cornerRadius = dp(12)
             backgroundTintList = ColorStateList.valueOf(palette.group)
             setTextColor(palette.icon)
-            layoutParams = android.widget.GridLayout.LayoutParams().apply {
-                width = 0
-                height = dp(48)
-                columnSpec = android.widget.GridLayout.spec(android.widget.GridLayout.UNDEFINED, 1, 1f)
-                rowSpec = android.widget.GridLayout.spec(android.widget.GridLayout.UNDEFINED, 1, 1f)
+            layoutParams = LinearLayout.LayoutParams(0, dp(48), 1f).apply {
                 setMargins(dp(2), dp(2), dp(2), dp(2))
             }
             setOnClickListener { onClick(it) }
+        }
+    }
+
+    private fun buildTabToolRow(vararg buttons: MaterialButton): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            buttons.forEach { addView(it) }
         }
     }
 
