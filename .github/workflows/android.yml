@@ -47,14 +47,18 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-gradle-
 
-    - name: Write keystore file
+    - name: Write keystore from secret
       run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > app/release.keystore
 
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
 
     - name: Build debug APK (${{ matrix.arch }})
-      run: ./gradlew assembleDebug -Pandroid.injected.signing.store.file=app/release.keystore -Pandroid.injected.signing.store.password=${{ secrets.KEYSTORE_PASSWORD }} -Pandroid.injected.signing.key.alias=${{ secrets.KEY_ALIAS }} -Pandroid.injected.signing.key.password=${{ secrets.KEY_PASSWORD }} -Pandroid.buildOnlyTargetAbi=true -Pandroid.injected.abi=${{ matrix.arch }}
+      env:
+        KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+      run: ./gradlew assembleDebug -Pandroid.injected.abi=${{ matrix.arch }}
 
     - name: Rename debug APK with arch
       run: |
@@ -69,7 +73,11 @@ jobs:
 
     - name: Build release APK (${{ matrix.arch }})
       if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
-      run: ./gradlew assembleRelease -Pandroid.injected.signing.store.file=app/release.keystore -Pandroid.injected.signing.store.password=${{ secrets.KEYSTORE_PASSWORD }} -Pandroid.injected.signing.key.alias=${{ secrets.KEY_ALIAS }} -Pandroid.injected.signing.key.password=${{ secrets.KEY_PASSWORD }} -Pandroid.buildOnlyTargetAbi=true -Pandroid.injected.abi=${{ matrix.arch }}
+      env:
+        KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+      run: ./gradlew assembleRelease -Pandroid.injected.abi=${{ matrix.arch }}
 
     - name: Rename release APK with arch
       if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
@@ -95,11 +103,6 @@ jobs:
       with:
         path: artifacts
         pattern: FloatingBrowser-*-*
-
-    - name: Create zip archive
-      run: |
-        cd artifacts
-        zip -r ../FloatingBrowser-v${{ github.run_number }}.zip .
 
     - name: Create Release and Upload Assets
       uses: softprops/action-gh-release@v2
