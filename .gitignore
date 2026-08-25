@@ -1,0 +1,26 @@
+# Android Studio / IntelliJ
+*.iml
+.idea/
+
+# Gradle and local SDK configuration
+.gradle/
+local.properties
+build/
+app/build/
+
+# Native and capture artifacts
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Signing material and local release outputs
+*.jks
+*.keystore
+*.apk
+*.aab
+*.zip
+
+# OS and editor temporary files
+.DS_Store
+*.swp
+*~
