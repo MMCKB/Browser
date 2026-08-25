@@ -740,7 +740,7 @@ class MainActivity : AppCompatActivity() {
             // 工具栏内容：垂直布局
             addView(LinearLayout(this@MainActivity).apply {
                 orientation = LinearLayout.VERTICAL
-                setPadding(dp(10), dp(10), dp(10), dp(10))
+                setPadding(dp(8), dp(8), dp(8), dp(8))
 
                 // 功能按钮：2行4列 GridLayout
                 addView(android.widget.GridLayout(this@MainActivity).apply {
@@ -773,9 +773,9 @@ class MainActivity : AppCompatActivity() {
                         ViewGroup.LayoutParams.WRAP_CONTENT
                     ).apply { topMargin = dp(8) }
                     addView(MaterialButton(this@MainActivity).apply {
-                        text = "⏶"
-                        textSize = 16f
-                        contentDescription = "收起"
+                        text = "收起"
+                        textSize = 12f
+                        contentDescription = "收起工具栏"
                         minWidth = 0
                         minHeight = 0
                         insetTop = 0
@@ -784,14 +784,14 @@ class MainActivity : AppCompatActivity() {
                         cornerRadius = dp(14)
                         backgroundTintList = ColorStateList.valueOf(palette.group)
                         setTextColor(palette.icon)
-                        layoutParams = LinearLayout.LayoutParams(dp(44), dp(44)).apply {
+                        layoutParams = LinearLayout.LayoutParams(dp(56), dp(44)).apply {
                             marginEnd = dp(8)
                         }
                         setOnClickListener { hideTabTools() }
                     })
                     addView(MaterialButton(this@MainActivity).apply {
-                        text = "⏻"
-                        textSize = 16f
+                        text = "退出"
+                        textSize = 12f
                         contentDescription = "关闭应用"
                         minWidth = 0
                         minHeight = 0
@@ -801,7 +801,7 @@ class MainActivity : AppCompatActivity() {
                         cornerRadius = dp(14)
                         backgroundTintList = ColorStateList.valueOf(palette.group)
                         setTextColor(palette.icon)
-                        layoutParams = LinearLayout.LayoutParams(dp(44), dp(44))
+                        layoutParams = LinearLayout.LayoutParams(dp(56), dp(44))
                         setOnClickListener { finish() }
                     })
                 }, LinearLayout.LayoutParams(
@@ -849,9 +849,9 @@ class MainActivity : AppCompatActivity() {
             backgroundTintList = ColorStateList.valueOf(palette.group)
             setTextColor(palette.icon)
             layoutParams = android.widget.GridLayout.LayoutParams().apply {
-                width = dp(80)
-                height = dp(58)
-                setMargins(dp(3), dp(3), dp(3), dp(3))
+                width = dp(72)
+                height = dp(52)
+                setMargins(dp(2), dp(2), dp(2), dp(2))
             }
             setOnClickListener { onClick(it) }
         }
