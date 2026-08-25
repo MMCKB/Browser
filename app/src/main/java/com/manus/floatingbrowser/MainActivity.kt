@@ -37,8 +37,6 @@ import android.webkit.URLUtil
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
-import androidx.viewpager2.widget.ViewPager2
-import androidx.recyclerview.widget.RecyclerView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.ScrollView
@@ -739,72 +737,46 @@ class MainActivity : AppCompatActivity() {
             translationY = dp(30).toFloat()
             setOnClickListener { /* 点击菜单自身不关闭。 */ }
 
-            // 垂直布局：ViewPager2 + 页码指示器
-            addView(LinearLayout(this@MainActivity).apply {
-                orientation = LinearLayout.VERTICAL
-                gravity = Gravity.CENTER_HORIZONTAL
-
-                // ViewPager2 用于左右滑动切换
-                addView(ViewPager2(this@MainActivity).also { pager ->
-                    pager.adapter = ToolbarPagerAdapter()
-                    pager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
-                        override fun onPageSelected(position: Int) {
-                            updatePageIndicator(position)
-                        }
-                    })
-                }, LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    dp(116)
-                ))
-
-                // 页码指示器
-                addView(LinearLayout(this@MainActivity).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    gravity = Gravity.CENTER
-                    tag = "pageIndicator"
-                }, LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                    dp(20)
-                ).apply { topMargin = dp(4) })
+            // 工具栏内容：2行5列的 GridLayout
+            addView(android.widget.GridLayout(this@MainActivity).apply {
+                columnCount = 5
+                rowCount = 2
+                setPadding(dp(8), dp(8), dp(8), dp(8))
+                // 第一行
+                addView(tabToolTile("☆", "添加书签") { toggleBookmark(); hideTabTools() })
+                addView(tabToolTile("⇩", "下载管理") { hideTabTools { showDownloadsOverlay() } })
+                addView(tabToolTile("↗", "分享") { shareCurrentUrl(); hideTabTools() })
+                addView(tabToolTile("⧉", "复制网址") { copyCurrentUrl(); hideTabTools() })
+                addView(tabToolTile("⌫", "清除缓存") { clearCurrentPageCache(); hideTabTools() })
+                // 第二行
+                addView(tabToolTile("⌂", "回到主页") { activeTab?.let(::showHome); hideTabTools() })
+                addView(tabToolTile("×", "关闭标签") { activeTab?.let { closeTab(it.id) }; hideTabTools() })
+                addView(tabToolTile("↻", "刷新") { activeTab?.webView?.reload(); hideTabTools() })
+                addView(tabToolTile("⚙", "设置") { settingsButton ->
+                    val point = captureAnchor(settingsButton)
+                    hideTabTools { showSettings(point) }
+                })
+                addView(tabToolTile("⏶", "收起") { hideTabTools() })
             })
         }
 
-        // 关闭应用和收起按钮（右下角）
-        val cornerButtons = LinearLayout(this@MainActivity).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.END
-            addView(MaterialButton(this@MainActivity).apply {
-                text = "⏶"
-                textSize = 14f
-                contentDescription = "收起工具栏"
-                minWidth = 0
-                minHeight = 0
-                insetTop = 0
-                insetBottom = 0
-                setPadding(dp(8), dp(4), dp(8), dp(4))
-                cornerRadius = dp(12)
-                backgroundTintList = ColorStateList.valueOf(palette.group)
-                setTextColor(palette.icon)
-                layoutParams = LinearLayout.LayoutParams(dp(36), dp(36)).apply {
-                    bottomMargin = dp(6)
-                }
-                setOnClickListener { hideTabTools() }
-            })
-            addView(MaterialButton(this@MainActivity).apply {
-                text = "⏻"
-                textSize = 14f
-                contentDescription = "关闭应用"
-                minWidth = 0
-                minHeight = 0
-                insetTop = 0
-                insetBottom = 0
-                setPadding(dp(8), dp(4), dp(8), dp(4))
-                cornerRadius = dp(12)
-                backgroundTintList = ColorStateList.valueOf(palette.group)
-                setTextColor(palette.icon)
-                layoutParams = LinearLayout.LayoutParams(dp(36), dp(36))
-                setOnClickListener { finish() }
-            })
+        // 关闭应用按钮（右下角）
+        val closeAppButton = MaterialButton(this@MainActivity).apply {
+            text = "⏻"
+            textSize = 14f
+            contentDescription = "关闭应用"
+            minWidth = 0
+            minHeight = 0
+            insetTop = 0
+            insetBottom = 0
+            setPadding(dp(8), dp(4), dp(8), dp(4))
+            cornerRadius = dp(12)
+            backgroundTintList = ColorStateList.valueOf(palette.group)
+            setTextColor(palette.icon)
+            layoutParams = FrameLayout.LayoutParams(dp(36), dp(36), Gravity.BOTTOM or Gravity.END).apply {
+                setMargins(0, 0, dp(16), dp(if (tabLayoutMode == TabLayoutMode.FULL) 150 else 110))
+            }
+            setOnClickListener { finish() }
         }
 
         tabToolsOverlay.addView(
@@ -817,16 +789,7 @@ class MainActivity : AppCompatActivity() {
                 setMargins(dp(12), 0, dp(12), dp(if (tabLayoutMode == TabLayoutMode.FULL) 106 else 62))
             }
         )
-        tabToolsOverlay.addView(
-            cornerButtons,
-            FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                Gravity.BOTTOM or Gravity.END
-            ).apply {
-                setMargins(0, 0, dp(16), dp(if (tabLayoutMode == TabLayoutMode.FULL) 150 else 110))
-            }
-        )
+        tabToolsOverlay.addView(closeAppButton)
         root.addView(
             tabToolsOverlay,
             FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
@@ -836,23 +799,6 @@ class MainActivity : AppCompatActivity() {
             toolbar.pivotY = toolbar.height.toFloat()
             toolbar.animate().alpha(1f).scaleX(1f).scaleY(1f).translationY(0f)
                 .setDuration(240).setInterpolator(android.view.animation.DecelerateInterpolator()).start()
-        }
-    }
-
-    // 更新页码指示器
-    private fun updatePageIndicator(currentPage: Int) {
-        if (!::tabToolsOverlay.isInitialized) return
-        val indicator = tabToolsOverlay.findViewWithTag<LinearLayout>("pageIndicator") ?: return
-        val palette = currentPalette()
-        indicator.removeAllViews()
-        val totalPages = 2 // 总共2页
-        for (i in 0 until totalPages) {
-            indicator.addView(TextView(this@MainActivity).apply {
-                text = if (i == currentPage) "●" else "○"
-                textSize = 10f
-                setTextColor(if (i == currentPage) palette.accent else palette.mutedText)
-                setPadding(dp(4), 0, dp(4), 0)
-            })
         }
     }
 
@@ -1644,53 +1590,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).roundToInt()
-
-    // ViewPager2 Adapter for toolbar pages
-    private inner class ToolbarPagerAdapter : RecyclerView.Adapter<ToolbarPagerAdapter.PageViewHolder>() {
-        private val pages: List<List<Triple<String, String, (View) -> Unit>>> = listOf(
-            // 第一页：常用功能
-            listOf(
-                Triple("☆", "添加书签") { _: View -> toggleBookmark(); hideTabTools() },
-                Triple("⇩", "下载管理") { _: View -> hideTabTools { showDownloadsOverlay() } },
-                Triple("↗", "分享") { _: View -> shareCurrentUrl(); hideTabTools() },
-                Triple("⧉", "复制网址") { _: View -> copyCurrentUrl(); hideTabTools() },
-                Triple("⌫", "清除缓存") { _: View -> clearCurrentPageCache(); hideTabTools() },
-                Triple("⌂", "回到主页") { _: View -> activeTab?.let(::showHome); hideTabTools() },
-                Triple("×", "关闭标签") { _: View -> activeTab?.let { closeTab(it.id) }; hideTabTools() },
-                Triple("↻", "刷新") { _: View -> activeTab?.webView?.reload(); hideTabTools() },
-                Triple("⚙", "设置") { settingsButton: View ->
-                    val point = captureAnchor(settingsButton)
-                    hideTabTools { showSettings(point) }
-                },
-                Triple("◯", "无痕模式") { _: View -> hideTabTools() }
-            )
-            // 可以添加更多页面...
-        )
-
-        inner class PageViewHolder(view: View) : RecyclerView.ViewHolder(view)
-
-        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): PageViewHolder {
-            val palette = currentPalette()
-            val grid = android.widget.GridLayout(parent.context).apply {
-                columnCount = 5  // 5列
-                rowCount = 2     // 2行
-                setPadding(dp(8), dp(8), dp(8), dp(8))
-            }
-
-            return PageViewHolder(grid)
-        }
-
-        override fun onBindViewHolder(holder: PageViewHolder, position: Int) {
-            val grid = holder.itemView as android.widget.GridLayout
-            grid.removeAllViews()
-            val items = pages[position]
-            for ((symbol, desc, action) in items) {
-                grid.addView(tabToolTile(symbol, desc, action))
-            }
-        }
-
-        override fun getItemCount(): Int = pages.size
-    }
 
     override fun onDestroy() {
         if (!isChangingConfigurations) {
