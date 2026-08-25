@@ -183,7 +183,12 @@ class MainActivity : AppCompatActivity() {
         predictiveBackEnabled = preferences.getBoolean(KEY_PREDICTIVE_BACK, true)
         // 应用预测性返回手势设置
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            enableOnBackInvokedCallback(predictiveBackEnabled)
+            try {
+                val method = Activity::class.java.getMethod("enableOnBackInvokedCallback", Boolean::class.javaPrimitiveType)
+                method.invoke(this, predictiveBackEnabled)
+            } catch (_: Exception) {
+                // API not available on this device
+            }
         }
 
         root = FrameLayout(this)
@@ -1037,7 +1042,7 @@ class MainActivity : AppCompatActivity() {
                         }.start()
                         enqueueWebDownloadWithManager(url, userAgent, contentDisposition, mimeType)
                     }
-                }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply { bottomMargin = dp(8) }))
+                }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply { bottomMargin = dp(8) })
 
                 // 自带下载器按钮
                 addView(MaterialButton(this@MainActivity).apply {
@@ -1057,7 +1062,7 @@ class MainActivity : AppCompatActivity() {
                         }.start()
                         enqueueWebDownloadBuiltIn(url, userAgent, contentDisposition, mimeType, fileName)
                     }
-                }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply { bottomMargin = dp(12) }))
+                }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply { bottomMargin = dp(12) })
 
                 // 取消按钮
                 addView(MaterialButton(this@MainActivity).apply {
@@ -1633,7 +1638,12 @@ class MainActivity : AppCompatActivity() {
                         predictiveBackEnabled = enabled
                         preferences.edit().putBoolean(KEY_PREDICTIVE_BACK, enabled).apply()
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                            enableOnBackInvokedCallback(enabled)
+                            try {
+                                val method = Activity::class.java.getMethod("enableOnBackInvokedCallback", Boolean::class.javaPrimitiveType)
+                                method.invoke(this, enabled)
+                            } catch (_: Exception) {
+                                // API not available on this device
+                            }
                         }
                         toast("已${if (enabled) "启用" else "关闭"}预测性返回手势")
                     })
@@ -1696,7 +1706,7 @@ class MainActivity : AppCompatActivity() {
                         setPadding(dp(10), 0, dp(10), 0)
                         background = roundedBackground(palette.input, dp(12), palette.cardStroke)
                     }
-                    addView(customInput, LinearLayout.LayoutParams(0, dp(38), 1f).apply { marginEnd = dp(6) }))
+                    addView(customInput, LinearLayout.LayoutParams(0, dp(38), 1f).apply { marginEnd = dp(6) })
                     addView(MaterialButton(this@MainActivity).apply {
                         text = "保存"
                         textSize = 13f
