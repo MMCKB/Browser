@@ -1,1 +1,1 @@
-# 当前版本不启用代码压缩；此文件为后续发布构建预留。
+# Add project specific ProGuard rules here.

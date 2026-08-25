@@ -1,30 +1,29 @@
 package com.manus.floatingbrowser
 
 import android.content.Context
+import android.content.SharedPreferences
 
 object DownloadStore {
-    private const val PREFERENCES_NAME = "browser_preferences"
-    private const val KEY_DOWNLOAD_IDS = "download_ids"
+    private const val PREFS_NAME = "download_store"
+    private const val KEY_IDS = "download_ids"
+
+    private fun prefs(context: Context): SharedPreferences =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     fun add(context: Context, id: Long) {
-        val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
-        val values = preferences.getStringSet(KEY_DOWNLOAD_IDS, emptySet()).orEmpty().toMutableSet()
-        values.add(id.toString())
-        preferences.edit().putStringSet(KEY_DOWNLOAD_IDS, values).apply()
-    }
-
-    fun ids(context: Context): LongArray {
-        return context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
-            .getStringSet(KEY_DOWNLOAD_IDS, emptySet())
-            .orEmpty()
-            .mapNotNull { it.toLongOrNull() }
-            .toLongArray()
+        val ids = ids(context).toMutableSet()
+        ids.add(id)
+        prefs(context).edit().putStringSet(KEY_IDS, ids.map { it.toString() }.toSet()).apply()
     }
 
     fun remove(context: Context, id: Long) {
-        val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
-        val values = preferences.getStringSet(KEY_DOWNLOAD_IDS, emptySet()).orEmpty().toMutableSet()
-        values.remove(id.toString())
-        preferences.edit().putStringSet(KEY_DOWNLOAD_IDS, values).apply()
+        val ids = ids(context).toMutableSet()
+        ids.remove(id)
+        prefs(context).edit().putStringSet(KEY_IDS, ids.map { it.toString() }.toSet()).apply()
+    }
+
+    fun ids(context: Context): List<Long> {
+        val raw = prefs(context).getStringSet(KEY_IDS, emptySet()) ?: emptySet()
+        return raw.mapNotNull { it.toLongOrNull() }.sorted()
     }
 }

@@ -1,4 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ic_launcher_background">#1A3B5C</color>
+    <string name="app_name">浮悬浏览器</string>
 </resources>

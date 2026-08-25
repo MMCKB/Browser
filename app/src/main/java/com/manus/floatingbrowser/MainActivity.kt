@@ -65,6 +65,10 @@ class MainActivity : AppCompatActivity() {
         private const val LEGACY_STORAGE_PERMISSION_REQUEST_CODE = 4012
         private const val NOTIFICATION_PERMISSION_REQUEST_CODE = 4013
         private const val KEY_DOWNLOAD_NOTIFICATIONS = "download_notifications_enabled"
+        private const val KEY_SEARCH_ENGINE = "search_engine"
+        private const val KEY_CUSTOM_SEARCH_URL = "custom_search_url"
+        private const val KEY_PREDICTIVE_BACK = "predictive_back_gesture"
+        private const val GITHUB_REPO_URL = "https://github.com/yourusername/FloatingBrowser"
         private const val DESKTOP_USER_AGENT =
             "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 " +
                 "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
@@ -122,6 +126,16 @@ class MainActivity : AppCompatActivity() {
         val mimeType: String?
     )
 
+    data class SearchEngine(val key: String, val name: String, val urlTemplate: String)
+
+    val searchEnginePresets = listOf(
+        SearchEngine("bing", "Bing", "https://www.bing.com/search?q="),
+        SearchEngine("google", "Google", "https://www.google.com/search?q="),
+        SearchEngine("baidu", "百度", "https://www.baidu.com/s?wd="),
+        SearchEngine("duckduckgo", "DuckDuckGo", "https://duckduckgo.com/?q="),
+        SearchEngine("custom", "自定义", "")
+    )
+
     private val tabs = mutableListOf<BrowserTab>()
     private var activeTabId: Long = -1L
     private var nextTabId: Long = 1L
@@ -130,6 +144,9 @@ class MainActivity : AppCompatActivity() {
     private var themeMode = ThemeMode.SYSTEM
     private var tabLayoutMode = TabLayoutMode.MINIMAL
     private var downloadNotificationsEnabled = false
+    private var searchEngineKey = "bing"
+    private var customSearchUrl = ""
+    private var predictiveBackEnabled = true
 
     private lateinit var preferences: SharedPreferences
     private lateinit var root: FrameLayout
@@ -161,6 +178,13 @@ class MainActivity : AppCompatActivity() {
         themeMode = ThemeMode.fromKey(preferences.getString(KEY_THEME_MODE, ThemeMode.SYSTEM.key))
         tabLayoutMode = TabLayoutMode.fromKey(preferences.getString(KEY_TAB_LAYOUT_MODE, TabLayoutMode.MINIMAL.key))
         downloadNotificationsEnabled = preferences.getBoolean(KEY_DOWNLOAD_NOTIFICATIONS, false) && hasDownloadNotificationPermission()
+        searchEngineKey = preferences.getString(KEY_SEARCH_ENGINE, "bing") ?: "bing"
+        customSearchUrl = preferences.getString(KEY_CUSTOM_SEARCH_URL, "") ?: ""
+        predictiveBackEnabled = preferences.getBoolean(KEY_PREDICTIVE_BACK, true)
+        // 应用预测性返回手势设置
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            enableOnBackInvokedCallback(predictiveBackEnabled)
+        }
 
         root = FrameLayout(this)
         webContainer = FrameLayout(this)
@@ -539,7 +563,7 @@ class MainActivity : AppCompatActivity() {
                 setPadding(dp(28), dp(28), dp(28), dp(32))
             }
             content.addView(TextView(this@MainActivity).apply {
-                text = "Bing"
+                text = searchEnginePresets.firstOrNull { it.key == searchEngineKey }?.name ?: "搜索"
                 textSize = 38f
                 setTextColor(palette.text)
                 gravity = Gravity.CENTER
@@ -554,7 +578,7 @@ class MainActivity : AppCompatActivity() {
             val searchField = EditText(this@MainActivity).apply {
                 setSingleLine(true)
                 textSize = 16f
-                hint = "使用 Bing 搜索"
+                hint = "搜索或输入网址"
                 setTextColor(palette.text)
                 setHintTextColor(palette.mutedText)
                 setPadding(dp(16), 0, dp(16), 0)
@@ -596,11 +620,20 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun currentSearchUrlTemplate(): String {
+        val preset = searchEnginePresets.firstOrNull { it.key == searchEngineKey }
+        return if (searchEngineKey == "custom" && customSearchUrl.isNotBlank()) {
+            customSearchUrl
+        } else {
+            preset?.urlTemplate ?: BING_SEARCH
+        }
+    }
+
     private fun submitHomeSearch(tab: BrowserTab, query: String) {
         val text = query.trim()
         if (text.isBlank()) return
         if (tab.id != activeTabId) selectTab(tab.id)
-        navigateToUrl(BING_SEARCH + Uri.encode(text))
+        navigateToUrl(currentSearchUrlTemplate() + Uri.encode(text))
     }
 
     private fun showHome(tab: BrowserTab) {
@@ -628,7 +661,7 @@ class MainActivity : AppCompatActivity() {
             input.isBlank() -> activeTab?.let(::showHome)
             input.startsWith("https://", ignoreCase = true) || input.startsWith("http://", ignoreCase = true) -> navigateToUrl(input)
             input.contains(".") && !input.contains(" ") -> navigateToUrl("https://$input")
-            else -> navigateToUrl(BING_SEARCH + Uri.encode(input))
+            else -> navigateToUrl(currentSearchUrlTemplate() + Uri.encode(input))
         }
         hideKeyboard()
     }
@@ -928,7 +961,194 @@ class MainActivity : AppCompatActivity() {
             requestPermissions(arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE), LEGACY_STORAGE_PERMISSION_REQUEST_CODE)
             return
         }
-        enqueueWebDownloadInternal(url, userAgent, contentDisposition, mimeType)
+        // 显示下载确认弹窗（文件名、大小、下载器选择）
+        showDownloadConfirmDialog(url, userAgent, contentDisposition, mimeType)
+    }
+
+    private fun showDownloadConfirmDialog(url: String, userAgent: String, contentDisposition: String?, mimeType: String?) {
+        val fileName = URLUtil.guessFileName(url, contentDisposition, mimeType)
+        val palette = currentPalette()
+
+        val downloadOverlay = FrameLayout(this).apply {
+            setBackgroundColor(Color.argb(150, 0, 0, 0))
+            alpha = 0f
+            elevation = dp(45).toFloat()
+            isClickable = true
+        }
+
+        val dialog = MaterialCardView(this).apply {
+            radius = dp(24).toFloat()
+            cardElevation = dp(16).toFloat()
+            setCardBackgroundColor(palette.card)
+            strokeColor = palette.cardStroke
+            strokeWidth = dp(1)
+            alpha = 0f
+            scaleX = 0.92f
+            scaleY = 0.92f
+            addView(LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(24), dp(20), dp(24), dp(20))
+
+                // 标题
+                addView(TextView(this@MainActivity).apply {
+                    text = "下载文件"
+                    textSize = 20f
+                    setTextColor(palette.text)
+                })
+                // 文件名
+                addView(TextView(this@MainActivity).apply {
+                    text = fileName
+                    textSize = 15f
+                    maxLines = 2
+                    setTextColor(palette.text)
+                    setPadding(0, dp(12), 0, dp(0))
+                })
+                // 文件大小提示
+                addView(TextView(this@MainActivity).apply {
+                    text = "正在获取文件信息..."
+                    textSize = 13f
+                    setTextColor(palette.mutedText)
+                    setPadding(0, dp(4), 0, dp(16))
+                })
+
+                // 下载器选择
+                addView(TextView(this@MainActivity).apply {
+                    text = "选择下载方式"
+                    textSize = 14f
+                    setTextColor(palette.mutedText)
+                    setPadding(0, dp(0), 0, dp(8))
+                })
+
+                // Android 下载器按钮
+                addView(MaterialButton(this@MainActivity).apply {
+                    text = "系统下载管理器"
+                    textSize = 15f
+                    isAllCaps = false
+                    gravity = Gravity.CENTER
+                    insetTop = 0
+                    insetBottom = 0
+                    cornerRadius = dp(14)
+                    setTextColor(if (isDarkPalette()) Color.rgb(235, 243, 252) else Color.WHITE)
+                    backgroundTintList = ColorStateList.valueOf(palette.accent)
+                    setPadding(dp(16), 0, dp(16), 0)
+                    setOnClickListener {
+                        downloadOverlay.animate().alpha(0f).setDuration(150).withEndAction {
+                            if (downloadOverlay.parent != null) root.removeView(downloadOverlay)
+                        }.start()
+                        enqueueWebDownloadWithManager(url, userAgent, contentDisposition, mimeType)
+                    }
+                }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply { bottomMargin = dp(8) }))
+
+                // 自带下载器按钮
+                addView(MaterialButton(this@MainActivity).apply {
+                    text = "应用内下载"
+                    textSize = 15f
+                    isAllCaps = false
+                    gravity = Gravity.CENTER
+                    insetTop = 0
+                    insetBottom = 0
+                    cornerRadius = dp(14)
+                    setTextColor(palette.text)
+                    backgroundTintList = ColorStateList.valueOf(palette.group)
+                    setPadding(dp(16), 0, dp(16), 0)
+                    setOnClickListener {
+                        downloadOverlay.animate().alpha(0f).setDuration(150).withEndAction {
+                            if (downloadOverlay.parent != null) root.removeView(downloadOverlay)
+                        }.start()
+                        enqueueWebDownloadBuiltIn(url, userAgent, contentDisposition, mimeType, fileName)
+                    }
+                }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply { bottomMargin = dp(12) }))
+
+                // 取消按钮
+                addView(MaterialButton(this@MainActivity).apply {
+                    text = "取消"
+                    textSize = 14f
+                    isAllCaps = false
+                    gravity = Gravity.CENTER
+                    minWidth = 0
+                    minHeight = 0
+                    insetTop = 0
+                    insetBottom = 0
+                    cornerRadius = dp(14)
+                    setTextColor(palette.mutedText)
+                    backgroundTintList = ColorStateList.valueOf(Color.TRANSPARENT)
+                    setOnClickListener {
+                        downloadOverlay.animate().alpha(0f).setDuration(150).withEndAction {
+                            if (downloadOverlay.parent != null) root.removeView(downloadOverlay)
+                        }.start()
+                    }
+                }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(40)))
+            })
+        }
+
+        downloadOverlay.addView(dialog, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            Gravity.CENTER
+        ).apply { setMargins(dp(32), 0, dp(32), 0) })
+
+        // 点击关闭
+        downloadOverlay.setOnClickListener {
+            downloadOverlay.animate().alpha(0f).setDuration(150).withEndAction {
+                if (downloadOverlay.parent != null) root.removeView(downloadOverlay)
+            }.start()
+        }
+
+        root.addView(downloadOverlay, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.MATCH_PARENT
+        ))
+        downloadOverlay.bringToFront()
+
+        downloadOverlay.animate().alpha(1f).setDuration(180).start()
+        dialog.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(240)
+            .setInterpolator(android.view.animation.DecelerateInterpolator()).start()
+    }
+
+    private fun enqueueWebDownloadWithManager(url: String, userAgent: String, contentDisposition: String?, mimeType: String?) {
+        val fileName = URLUtil.guessFileName(url, contentDisposition, mimeType)
+        val request = DownloadManager.Request(Uri.parse(url)).apply {
+            setTitle(fileName)
+            setDescription("来自浮悬浏览器")
+            if (!mimeType.isNullOrBlank()) setMimeType(mimeType)
+            setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+            setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
+            if (userAgent.isNotBlank()) addRequestHeader("User-Agent", userAgent)
+            CookieManager.getInstance().getCookie(url)?.let { addRequestHeader("Cookie", it) }
+        }
+        try {
+            val manager = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+            val downloadId = manager.enqueue(request)
+            toast("已开始下载：$fileName")
+        } catch (error: Exception) {
+            toast("无法开始下载：${error.message ?: "系统下载服务不可用"}")
+        }
+    }
+
+    private fun enqueueWebDownloadBuiltIn(url: String, userAgent: String, contentDisposition: String?, mimeType: String?, fileName: String) {
+        toast("应用内下载：$fileName")
+        // 使用 DownloadManager 但由应用自己管理进度（简化实现）
+        // 实际项目中可用 OkHttp/HttpURLConnection 实现内置下载
+        val request = DownloadManager.Request(Uri.parse(url)).apply {
+            setTitle(fileName)
+            setDescription("应用内下载 · 来自浮悬浏览器")
+            if (!mimeType.isNullOrBlank()) setMimeType(mimeType)
+            setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
+            setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
+            if (userAgent.isNotBlank()) addRequestHeader("User-Agent", userAgent)
+            CookieManager.getInstance().getCookie(url)?.let { addRequestHeader("Cookie", it) }
+            setRequiresCharging(false)
+            setAllowedOverMetered(true)
+            setAllowedOverRoaming(true)
+        }
+        try {
+            val manager = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+            val downloadId = manager.enqueue(request)
+            DownloadStore.add(this, downloadId)
+            toast("已开始下载：$fileName")
+        } catch (error: Exception) {
+            toast("无法开始下载：${error.message ?: "下载服务不可用"}")
+        }
     }
 
     private fun enqueueWebDownloadInternal(url: String, userAgent: String, contentDisposition: String?, mimeType: String?) {
@@ -1380,13 +1600,20 @@ class MainActivity : AppCompatActivity() {
                     orientation = LinearLayout.VERTICAL
                     setPadding(dp(20), dp(16), dp(20), dp(18))
                     addView(buildSettingsHeader())
-                    addView(settingsDescription("默认搜索引擎", "Bing。首页输入内容后才会跳转至 Bing 搜索结果页。"))
+
+                    // 搜索引擎设置
+                    addView(settingsDescription("默认搜索引擎", "选择搜索或地址栏查询时使用的搜索引擎。"))
+                    addView(settingsDivider())
+                    addView(buildSearchEngineSelector())
+
                     addView(settingsDivider())
                     addView(settingsChoice("主题", ThemeMode.entries.map { it.label }, themeMode.label) { selected ->
                         themeMode = ThemeMode.entries.first { it.label == selected }
                         preferences.edit().putString(KEY_THEME_MODE, themeMode.key).apply()
                         applyAppearance()
+                        attachBottomControls()
                     })
+
                     addView(settingsDivider())
                     addView(settingsChoice("Tab 显示模式", TabLayoutMode.entries.map { it.label }, tabLayoutMode.label) { selected ->
                         tabLayoutMode = TabLayoutMode.entries.first { it.label == selected }
@@ -1400,43 +1627,112 @@ class MainActivity : AppCompatActivity() {
                         preferences.edit().putBoolean(KEY_JAVASCRIPT_ENABLED, enabled).apply()
                         tabs.forEach(::applyWebSettings)
                     })
+
                     addView(settingsDivider())
-                    addView(settingsSwitch("请求桌面版网站", "使用桌面浏览器标识重新加载当前网页。", desktopModeEnabled) { enabled ->
-                        desktopModeEnabled = enabled
-                        preferences.edit().putBoolean(KEY_DESKTOP_MODE, enabled).apply()
-                        tabs.forEach(::applyWebSettings)
-                        activeTab?.takeIf { !it.isHome }?.webView?.reload()
-                    })
-                    addView(settingsDivider())
-                    addView(settingsSwitch("下载实时通知", "显示用户发起下载的真实进度与完成状态。", downloadNotificationsEnabled) { enabled ->
-                        if (enabled) {
-                            requestDownloadNotificationPermission()
-                        } else {
-                            setDownloadNotificationsEnabled(false)
+                    addView(settingsSwitch("预测性返回手势", "启用后可预览返回手势的目标页面（Android 13+）。", predictiveBackEnabled) { enabled ->
+                        predictiveBackEnabled = enabled
+                        preferences.edit().putBoolean(KEY_PREDICTIVE_BACK, enabled).apply()
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            enableOnBackInvokedCallback(enabled)
                         }
+                        toast("已${if (enabled) "启用" else "关闭"}预测性返回手势")
                     })
-                    addView(settingsAction("系统通知权限", "前往系统设置查看或重新开启本应用的通知权限。") {
-                        openNotificationSettings()
-                    })
-                    addView(settingsAction("实时动态通知显示", "Android 16+ 可在系统中允许或关闭下载进度的实时动态通知提升。") {
-                        openLiveUpdateSettings()
-                    })
-                    addView(settingsAction("测试下载实时通知", "立即发送一条独立测试通知；若不可见，请打开下载管理查看诊断。") {
-                        val sent = DownloadNotificationDiagnostics.postTest(this@MainActivity)
-                        toast(if (sent) "已发送测试通知，请查看系统通知栏" else "测试通知未发送，请查看下载管理诊断")
-                    })
-                    addView(settingsDescription(
-                        "下载通知状态",
-                        if (hasDownloadNotificationPermission()) "已允许。Android 16+ 会请求系统将下载进度提升为实时动态通知。" else "当前不可见。请先允许系统通知，并检查该通知渠道未被关闭。"
-                    ))
+
                     addView(settingsDivider())
-                    addView(settingsAction("清除浏览数据", "清除所有标签页缓存、历史记录、Cookie 与网站存储数据。") {
-                        clearAllBrowsingData()
+                    addView(settingsAction("应用信息", "查看应用版本、源码仓库等信息。") {
+                        showAppInfoPage()
                     })
-                    addView(settingsDivider())
-                    addView(settingsDescription("应用信息", "浮悬浏览器 · Kotlin 原生 Android · WebView"))
                 })
             })
+        }
+    }
+
+    private fun buildSearchEngineSelector(): LinearLayout {
+        val palette = currentPalette()
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, dp(12), 0, dp(12))
+            addView(LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(0, dp(8), 0, dp(0))
+                // 预设搜索引擎选择按钮组
+                searchEnginePresets.filter { it.key != "custom" }.forEach { engine ->
+                    addView(MaterialButton(this@MainActivity).apply {
+                        text = engine.name
+                        textSize = 12f
+                        isAllCaps = false
+                        minWidth = 0
+                        minHeight = 0
+                        insetTop = 0
+                        insetBottom = 0
+                        cornerRadius = dp(15)
+                        setPadding(dp(8), 0, dp(8), 0)
+                        val active = searchEngineKey == engine.key
+                        backgroundTintList = ColorStateList.valueOf(if (active) palette.selectedChip else palette.group)
+                        setTextColor(if (active) palette.text else palette.mutedText)
+                        setOnClickListener {
+                            searchEngineKey = engine.key
+                            preferences.edit().putString(KEY_SEARCH_ENGINE, engine.key).apply()
+                            // 刷新设置页
+                            refreshSettings()
+                        }
+                    }, LinearLayout.LayoutParams(0, dp(36), 1f).apply { marginEnd = dp(4) })
+                }
+            })
+            // 自定义搜索引擎输入
+            if (searchEngineKey == "custom") {
+                addView(LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(0, dp(8), 0, 0)
+                    val customInput = EditText(this@MainActivity).apply {
+                        setSingleLine(true)
+                        textSize = 14f
+                        setTextColor(palette.text)
+                        setHintTextColor(palette.mutedText)
+                        hint = "https://example.com/search?q="
+                        setText(customSearchUrl)
+                        setPadding(dp(10), 0, dp(10), 0)
+                        background = roundedBackground(palette.input, dp(12), palette.cardStroke)
+                    }
+                    addView(customInput, LinearLayout.LayoutParams(0, dp(38), 1f).apply { marginEnd = dp(6) }))
+                    addView(MaterialButton(this@MainActivity).apply {
+                        text = "保存"
+                        textSize = 13f
+                        isAllCaps = false
+                        minWidth = 0
+                        minHeight = 0
+                        insetTop = 0
+                        insetBottom = 0
+                        cornerRadius = dp(12)
+                        setTextColor(Color.WHITE)
+                        backgroundTintList = ColorStateList.valueOf(palette.accent)
+                        setOnClickListener {
+                            val url = customInput.text.toString().trim()
+                            if (url.isNotEmpty() && url.contains("{q}")) {
+                                customSearchUrl = url
+                                preferences.edit().putString(KEY_CUSTOM_SEARCH_URL, url).apply()
+                                toast("已保存自定义搜索引擎")
+                            } else if (url.isNotEmpty() && url.contains("q=")) {
+                                // 兼容不含 {q} 的 URL
+                                customSearchUrl = url
+                                preferences.edit().putString(KEY_CUSTOM_SEARCH_URL, url).apply()
+                                toast("已保存自定义搜索引擎")
+                            } else {
+                                toast("请输入有效的搜索 URL，包含 ?q= 或 {q}")
+                            }
+                        }
+                    }, LinearLayout.LayoutParams(dp(60), dp(38)))
+                })
+            }
+        }
+    }
+
+    private fun refreshSettings() {
+        if (::settingsOverlay.isInitialized && settingsOverlay.parent != null) {
+            root.removeView(settingsOverlay)
+            settingsAnchorPoint?.let { showSettings(it) } ?: showSettings()
         }
     }
 
@@ -1574,10 +1870,24 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun applyAppearance() {
-        applyTabLayout()
+        // 刷新整个界面以应用新主题
+        val palette = currentPalette()
+        root.setBackgroundColor(palette.page)
+        window.statusBarColor = palette.page
+        window.navigationBarColor = palette.page
+        // 重新构建底部控件
+        attachBottomControls()
+        // 刷新 web 容器内当前内容
+        activeTab?.let {
+            if (it.isHome) {
+                webContainer.removeAllViews()
+                webContainer.addView(buildHomeScreen(it))
+            }
+        }
+        // 刷新设置弹窗颜色
         if (::settingsDialog.isInitialized && settingsDialog.parent != null) {
-            settingsDialog.setCardBackgroundColor(currentPalette().card)
-            settingsDialog.strokeColor = currentPalette().cardStroke
+            settingsDialog.setCardBackgroundColor(palette.card)
+            settingsDialog.strokeColor = palette.cardStroke
         }
     }
 
@@ -1614,6 +1924,132 @@ class MainActivity : AppCompatActivity() {
         WebStorage.getInstance().deleteAllData()
         hideSettings()
         toast("浏览数据已清除")
+    }
+
+    private fun showAppInfoPage() {
+        if (::settingsOverlay.isInitialized && settingsOverlay.parent != null) {
+            root.removeView(settingsOverlay)
+        }
+        val palette = currentPalette()
+        val infoOverlay = FrameLayout(this).apply {
+            setBackgroundColor(palette.page)
+            alpha = 0f
+            elevation = dp(50).toFloat()
+            isClickable = true
+        }
+        val card = MaterialCardView(this).apply {
+            radius = dp(28).toFloat()
+            cardElevation = dp(18).toFloat()
+            setCardBackgroundColor(palette.card)
+            strokeColor = palette.cardStroke
+            strokeWidth = dp(1)
+            alpha = 0f
+            scaleX = 0.92f
+            scaleY = 0.92f
+            addView(ScrollView(this@MainActivity).apply {
+                isFillViewport = true
+                addView(LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    gravity = Gravity.CENTER_HORIZONTAL
+                    setPadding(dp(28), dp(24), dp(28), dp(28))
+
+                    // 头部：标题 + 关闭按钮
+                    addView(LinearLayout(this@MainActivity).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        gravity = Gravity.CENTER_VERTICAL
+                        addView(TextView(this@MainActivity).apply {
+                            text = "应用信息"
+                            textSize = 22f
+                            setTextColor(palette.text)
+                        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                        addView(MaterialButton(this@MainActivity).apply {
+                            text = "×"
+                            textSize = 22f
+                            contentDescription = "关闭"
+                            minWidth = 0
+                            minHeight = 0
+                            insetTop = 0
+                            insetBottom = 0
+                            setPadding(0, 0, 0, 0)
+                            cornerRadius = dp(15)
+                            backgroundTintList = ColorStateList.valueOf(palette.group)
+                            setTextColor(palette.icon)
+                            setOnClickListener {
+                                infoOverlay.animate().alpha(0f).setDuration(150).withEndAction {
+                                    if (infoOverlay.parent != null) root.removeView(infoOverlay)
+                                }.start()
+                            }
+                        }, LinearLayout.LayoutParams(dp(40), dp(40)))
+                    })
+
+                    // 放大的 App 图标
+                    addView(TextView(this@MainActivity).apply {
+                        text = "🌐"
+                        textSize = 72f
+                        gravity = Gravity.CENTER
+                        setPadding(0, dp(32), 0, dp(16))
+                    })
+
+                    // 应用名称和版本号
+                    addView(TextView(this@MainActivity).apply {
+                        text = "浮悬浏览器"
+                        textSize = 24f
+                        gravity = Gravity.CENTER
+                        setTextColor(palette.text)
+                    })
+                    addView(TextView(this@MainActivity).apply {
+                        text = "版本 ${packageManager.getPackageInfo(packageName, 0).versionName}"
+                        textSize = 15f
+                        gravity = Gravity.CENTER
+                        setTextColor(palette.mutedText)
+                        setPadding(0, dp(6), 0, dp(28))
+                    })
+
+                    // GitHub 仓库链接
+                    addView(MaterialButton(this@MainActivity).apply {
+                        text = "GitHub 仓库"
+                        textSize = 16f
+                        isAllCaps = false
+                        minWidth = 0
+                        minHeight = 0
+                        insetTop = 0
+                        insetBottom = 0
+                        cornerRadius = dp(16)
+                        setTextColor(if (isDarkPalette()) Color.rgb(235, 243, 252) else Color.WHITE)
+                        backgroundTintList = ColorStateList.valueOf(palette.accent)
+                        setPadding(dp(16), dp(0), dp(16), dp(0))
+                        setOnClickListener {
+                            openExternalUri(Uri.parse(GITHUB_REPO_URL))
+                        }
+                    }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(48)).apply {
+                        bottomMargin = dp(16)
+                    })
+
+                    addView(TextView(this@MainActivity).apply {
+                        text = "Kotlin 原生 Android · WebView"
+                        textSize = 13f
+                        gravity = Gravity.CENTER
+                        setTextColor(palette.mutedText)
+                    })
+                })
+            })
+        }
+
+        infoOverlay.addView(card, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            Gravity.CENTER
+        ).apply { setMargins(dp(32), dp(80), dp(32), dp(80)) })
+
+        root.addView(infoOverlay, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.MATCH_PARENT
+        ))
+        infoOverlay.bringToFront()
+
+        infoOverlay.animate().alpha(1f).setDuration(180).start()
+        card.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(240)
+            .setInterpolator(android.view.animation.DecelerateInterpolator()).start()
     }
 
     private fun captureAnchor(view: View): PointF {

@@ -12,7 +12,7 @@ android {
         minSdk = 24
         targetSdk = 36
         versionCode = 15
-        versionName = "2.15.0-notification-diagnostics"
+        versionName = "2.20.0-settings-refactor"
         
         ndk {
             abiFilters += listOf("x86_64", "x86", "arm64-v8a", "armeabi-v7a")
