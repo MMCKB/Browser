@@ -746,7 +746,7 @@ class MainActivity : AppCompatActivity() {
 
                 // ViewPager2 用于左右滑动切换
                 addView(ViewPager2(this@MainActivity).also { pager ->
-                    pager.adapter = ToolbarPagerAdapter(this@MainActivity)
+                    pager.adapter = ToolbarPagerAdapter()
                     pager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
                         override fun onPageSelected(position: Int) {
                             updatePageIndicator(position)
@@ -1646,7 +1646,7 @@ class MainActivity : AppCompatActivity() {
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).roundToInt()
 
     // ViewPager2 Adapter for toolbar pages
-    private inner class ToolbarPagerAdapter(activity: MainActivity) : RecyclerView.Adapter<ToolbarPagerAdapter.PageViewHolder>() {
+    private inner class ToolbarPagerAdapter : RecyclerView.Adapter<ToolbarPagerAdapter.PageViewHolder>() {
         private val pages: List<List<Triple<String, String, (View) -> Unit>>> = listOf(
             // 第一页：常用功能
             listOf(
@@ -1685,7 +1685,7 @@ class MainActivity : AppCompatActivity() {
             grid.removeAllViews()
             val items = pages[position]
             for ((symbol, desc, action) in items) {
-                grid.addView(tabToolTile(symbol, desc) { action(it) })
+                grid.addView(tabToolTile(symbol, desc, action))
             }
         }
 
