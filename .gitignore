@@ -1,26 +1,14 @@
-# Android Studio / IntelliJ
 *.iml
-.idea/
-
-# Gradle and local SDK configuration
-.gradle/
-local.properties
-build/
-app/build/
-
-# Native and capture artifacts
-captures/
-.externalNativeBuild/
-.cxx/
-
-# Signing material and local release outputs
-*.jks
-*.keystore
+.gradle
+/local.properties
+/.idea
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
 *.apk
 *.aab
-*.zip
-
-# OS and editor temporary files
-.DS_Store
-*.swp
-*~
+# Keystore files - injected via GitHub Secrets
+*.keystore
+*.jks
