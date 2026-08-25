@@ -768,7 +768,10 @@ class MainActivity : AppCompatActivity() {
                 addView(LinearLayout(this@MainActivity).apply {
                     orientation = LinearLayout.HORIZONTAL
                     gravity = Gravity.END
-                    topMargin = dp(8)
+                    layoutParams = LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    ).apply { topMargin = dp(8) }
                     addView(MaterialButton(this@MainActivity).apply {
                         text = "⏶"
                         textSize = 16f
