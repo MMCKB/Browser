@@ -897,7 +897,7 @@ class MainActivity : AppCompatActivity() {
         val toolbar = tabToolsOverlay.getChildAt(0)
         // 流畅交互：弹簧式收起 + 遮罩淡出
         tabToolsOverlay.animate().alpha(0f).setDuration(180).setInterpolator(android.view.animation.AccelerateInterpolator()).start()
-        springDismiss(toolbar, 0.86f, 30f, 0.85f)
+        springDismiss(toolbar, 0.86f, 30, 0.85f)
         // 延迟移除视图（等待动画基本完成）
         toolbar.postDelayed({
             if (tabToolsOverlay.parent != null) root.removeView(tabToolsOverlay)
