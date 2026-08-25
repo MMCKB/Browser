@@ -740,7 +740,7 @@ class MainActivity : AppCompatActivity() {
             // 工具栏内容：垂直布局
             addView(LinearLayout(this@MainActivity).apply {
                 orientation = LinearLayout.VERTICAL
-                setPadding(dp(8), dp(1), dp(8), dp(15))
+                setPadding(dp(8), dp(3), dp(8), dp(13))
 
                 // 功能按钮：2行4列
                 addView(buildTabToolRow(
@@ -763,7 +763,7 @@ class MainActivity : AppCompatActivity() {
                 ), LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     dp(48)
-                ).apply { topMargin = dp(4) })
+                ).apply { topMargin = dp(9) })
 
                 // 底部行：收起和关闭按钮（右对齐）
                 addView(LinearLayout(this@MainActivity).apply {
