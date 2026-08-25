@@ -221,37 +221,43 @@ class MainActivity : AppCompatActivity() {
         }
         return if (dark) {
             Palette(
-                page = Color.rgb(7, 14, 25),
-                card = Color.argb(224, 18, 29, 46),
-                cardStroke = Color.argb(130, 91, 119, 146),
-                group = Color.argb(176, 29, 46, 68),
-                input = Color.argb(194, 27, 42, 62),
-                chip = Color.argb(148, 28, 44, 64),
-                selectedChip = Color.argb(202, 30, 79, 116),
-                text = Color.rgb(235, 243, 252),
-                mutedText = Color.rgb(170, 192, 215),
-                icon = Color.rgb(224, 238, 251),
-                divider = Color.argb(180, 101, 138, 169),
+                // 深色模式：纯深灰黑毛玻璃，蓝调仅保留在 accent
+                page = Color.rgb(18, 18, 20),
+                card = Color.argb(210, 36, 36, 39),
+                cardStroke = Color.argb(90, 80, 80, 84),
+                group = Color.WHITE,
+                input = Color.rgb(248, 248, 250),
+                chip = Color.argb(235, 240, 240, 243),
+                selectedChip = Color.argb(230, 220, 228, 238),
+                text = Color.rgb(28, 28, 30),
+                mutedText = Color.rgb(110, 110, 114),
+                icon = Color.rgb(44, 44, 46),
+                divider = Color.argb(60, 180, 180, 184),
                 accent = Color.rgb(112, 199, 255),
                 homeBadge = Color.rgb(51, 123, 177),
-                actionBackground = Color.rgb(35, 74, 108)
+                actionBackground = Color.rgb(50, 50, 54)
             )
         } else {
             Palette(
-                page = Color.rgb(244, 248, 252),
-                card = Color.argb(230, 249, 251, 253),
-                cardStroke = Color.argb(130, 190, 207, 221),
-                group = Color.argb(180, 232, 240, 247),
-                input = Color.argb(202, 236, 242, 248),
-                chip = Color.argb(158, 229, 236, 243),
-                selectedChip = Color.argb(210, 195, 223, 243),
-                text = Color.rgb(22, 42, 62),
-                mutedText = Color.rgb(88, 109, 130),
-                icon = Color.rgb(30, 65, 95),
-                divider = Color.rgb(203, 217, 229),
+                // 浅色模式：纯白毛玻璃，无蓝调混入
+                // card 作为厚毛玻璃底座 — 高透明度纯白
+                page = Color.rgb(247, 247, 250),
+                card = Color.argb(235, 252, 252, 253),
+                cardStroke = Color.argb(70, 200, 200, 204),
+                // group 交互底座 — 实体白，不透光，不叠在透光层上
+                group = Color.WHITE,
+                // input 输入区 — 浅灰白实体，与底座区分
+                input = Color.rgb(242, 242, 245),
+                chip = Color.argb(235, 240, 240, 243),
+                selectedChip = Color.argb(230, 220, 228, 238),
+                // 文本：近黑纯灰，保证毛玻璃上可读性
+                text = Color.rgb(28, 28, 30),
+                mutedText = Color.rgb(110, 110, 114),
+                icon = Color.rgb(44, 44, 46),
+                divider = Color.argb(60, 180, 180, 184),
                 accent = Color.rgb(22, 119, 181),
                 homeBadge = Color.rgb(33, 126, 190),
-                actionBackground = Color.rgb(213, 236, 251)
+                actionBackground = Color.rgb(232, 232, 236)
             )
         }
     }
@@ -282,8 +288,9 @@ class MainActivity : AppCompatActivity() {
         val palette = currentPalette()
         return MaterialCardView(this).apply {
             radius = dp(20).toFloat()
-            // 材质：底部栏层级低于工具栏
+            // 材质：底部栏作为主厚毛玻璃层 — 层级低于工具栏
             cardElevation = dp(4).toFloat()
+            // 材质：高透明度纯白毛玻璃底座
             setCardBackgroundColor(palette.card)
             strokeColor = palette.cardStroke
             strokeWidth = dp(1)
@@ -310,10 +317,12 @@ class MainActivity : AppCompatActivity() {
             addressField = EditText(this@MainActivity).apply {
                 setSingleLine(true)
                 textSize = 14f
+                // 材质：高对比度文本，保证毛玻璃上可读性
                 setTextColor(palette.text)
                 setHintTextColor(palette.mutedText)
                 hint = "搜索或网址"
                 setPadding(dp(10), 0, dp(10), 0)
+                // 材质：输入区 — 浅灰白实体，与毛玻璃底座区分
                 background = roundedBackground(palette.input, dp(16), palette.cardStroke)
                 imeOptions = EditorInfo.IME_ACTION_GO
                 inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_URI
@@ -353,6 +362,7 @@ class MainActivity : AppCompatActivity() {
         return MaterialCardView(this).apply {
             radius = dp(17).toFloat()
             cardElevation = 0f
+            // 材质：交互底座 — 实体白，不透光，不叠在透光层上
             setCardBackgroundColor(palette.group)
             strokeColor = palette.cardStroke
             strokeWidth = dp(1)
@@ -437,6 +447,7 @@ class MainActivity : AppCompatActivity() {
             insetBottom = 0
             setPadding(0, 0, 0, 0)
             cornerRadius = dp(13)
+            // 材质：交互按钮 — 实体白，不透光，放置在毛玻璃底座之上
             backgroundTintList = ColorStateList.valueOf(palette.group)
             setTextColor(palette.icon)
             layoutParams = LinearLayout.LayoutParams(dp(32), dp(34)).apply { marginEnd = dp(1) }
@@ -758,7 +769,7 @@ class MainActivity : AppCompatActivity() {
         tabToolsOverlay = FrameLayout(this).apply {
             isClickable = true
             alpha = 0f
-            // 材质：半透明遮罩（不模糊，仅降低亮度营造景深）
+            // 材质：半透明遮罩营造景深，不使用模糊
             setBackgroundColor(Color.argb(45, 0, 0, 0))
             setOnClickListener { hideTabTools() }
         }
@@ -767,7 +778,7 @@ class MainActivity : AppCompatActivity() {
             // 材质：层级深度 - 工具栏浮起高于底部栏
             cardElevation = dp(16).toFloat()
             translationZ = dp(8).toFloat()
-            // 材质：近不透明背景确保内容可读
+            // 材质：纯白厚毛玻璃浮动层
             setCardBackgroundColor(palette.card)
             strokeColor = palette.cardStroke
             strokeWidth = dp(1)
@@ -857,6 +868,7 @@ class MainActivity : AppCompatActivity() {
             insetBottom = 0
             setPadding(dp(4), dp(4), dp(4), dp(4))
             cornerRadius = dp(14)
+            // 材质：工具栏按钮 — 实体白，不叠在透光层上
             backgroundTintList = ColorStateList.valueOf(palette.group)
             setTextColor(palette.icon)
             layoutParams = LinearLayout.LayoutParams(0, dp(48), 1f).apply {
@@ -968,6 +980,7 @@ class MainActivity : AppCompatActivity() {
         val palette = currentPalette()
 
         val downloadOverlay = FrameLayout(this).apply {
+            // 材质：模态遮罩 — 更暗的 scrim（150/255 不透明黑）聚焦前景
             setBackgroundColor(Color.argb(150, 0, 0, 0))
             alpha = 0f
             elevation = dp(45).toFloat()
@@ -977,6 +990,7 @@ class MainActivity : AppCompatActivity() {
         val dialog = MaterialCardView(this).apply {
             radius = dp(24).toFloat()
             cardElevation = dp(16).toFloat()
+            // 材质：模态弹窗 — 纯白厚毛玻璃
             setCardBackgroundColor(palette.card)
             strokeColor = palette.cardStroke
             strokeWidth = dp(1)
@@ -1026,7 +1040,8 @@ class MainActivity : AppCompatActivity() {
                     insetTop = 0
                     insetBottom = 0
                     cornerRadius = dp(14)
-                    setTextColor(if (isDarkPalette()) Color.rgb(235, 243, 252) else Color.WHITE)
+                    // 材质：纯灰白文本，无蓝调
+                    setTextColor(if (isDarkPalette()) Color.rgb(235, 235, 235) else Color.WHITE)
                     backgroundTintList = ColorStateList.valueOf(palette.accent)
                     setPadding(dp(16), 0, dp(16), 0)
                     setOnClickListener {
@@ -1344,6 +1359,7 @@ class MainActivity : AppCompatActivity() {
         val sheet = MaterialCardView(this).apply {
             radius = dp(24).toFloat()
             cardElevation = dp(18).toFloat()
+            // 材质：下载面板 — 纯白厚毛玻璃
             setCardBackgroundColor(palette.card)
             strokeColor = palette.cardStroke
             strokeWidth = dp(1)
@@ -1589,6 +1605,7 @@ class MainActivity : AppCompatActivity() {
         return MaterialCardView(this).apply {
             radius = dp(28).toFloat()
             cardElevation = dp(18).toFloat()
+            // 材质：设置弹窗 — 纯白厚毛玻璃
             setCardBackgroundColor(palette.card)
             strokeColor = palette.cardStroke
             strokeWidth = dp(1)
@@ -1666,6 +1683,7 @@ class MainActivity : AppCompatActivity() {
                         cornerRadius = dp(15)
                         setPadding(dp(8), 0, dp(8), 0)
                         val active = searchEngineKey == engine.key
+                        // 材质：搜索引擎按钮 — 实体白底座，选中时蓝色高亮
                         backgroundTintList = ColorStateList.valueOf(if (active) palette.selectedChip else palette.group)
                         setTextColor(if (active) palette.text else palette.mutedText)
                         setOnClickListener {
@@ -1753,6 +1771,7 @@ class MainActivity : AppCompatActivity() {
                 insetBottom = 0
                 setPadding(0, 0, 0, 0)
                 cornerRadius = dp(15)
+                // 材质：设置关闭按钮 — 实体白交互元素，置于毛玻璃之上
                 backgroundTintList = ColorStateList.valueOf(palette.group)
                 setTextColor(palette.icon)
                 setOnClickListener { hideSettings() }
@@ -1860,6 +1879,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun settingsDivider(): View {
+        // 材质：柔和的纯灰分隔线（低视觉权重）
         return View(this).apply {
             setBackgroundColor(currentPalette().divider)
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1))
@@ -1929,6 +1949,7 @@ class MainActivity : AppCompatActivity() {
         }
         val palette = currentPalette()
         val infoOverlay = FrameLayout(this).apply {
+            // 材质：应用信息遮罩 — 使用页面底色的实色遮罩营造景深
             setBackgroundColor(palette.page)
             alpha = 0f
             elevation = dp(50).toFloat()
@@ -1937,6 +1958,7 @@ class MainActivity : AppCompatActivity() {
         val card = MaterialCardView(this).apply {
             radius = dp(28).toFloat()
             cardElevation = dp(18).toFloat()
+            // 材质：应用信息卡 — 纯白厚毛玻璃
             setCardBackgroundColor(palette.card)
             strokeColor = palette.cardStroke
             strokeWidth = dp(1)
@@ -2012,7 +2034,8 @@ class MainActivity : AppCompatActivity() {
                         insetTop = 0
                         insetBottom = 0
                         cornerRadius = dp(16)
-                        setTextColor(if (isDarkPalette()) Color.rgb(235, 243, 252) else Color.WHITE)
+                        // 材质：纯灰白文本，无蓝调
+                        setTextColor(if (isDarkPalette()) Color.rgb(235, 235, 235) else Color.WHITE)
                         backgroundTintList = ColorStateList.valueOf(palette.accent)
                         setPadding(dp(16), dp(0), dp(16), dp(0))
                         setOnClickListener {
