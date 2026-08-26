@@ -2,6 +2,7 @@ package com.mmckb.browser
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.app.Dialog
 import android.app.DownloadManager
 import android.content.ActivityNotFoundException
 import android.content.ClipData
@@ -20,7 +21,10 @@ import android.graphics.PointF
 import android.graphics.RenderEffect
 import android.graphics.Shader
 import android.graphics.Typeface
+import android.graphics.drawable.ClipDrawable
+import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.LayerDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -235,6 +239,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var appInfoCard: MaterialCardView
     private lateinit var homeEditorOverlay: FrameLayout
     private lateinit var homeEditorContent: LinearLayout
+    private lateinit var homeEditorPreviewTitle: TextView
+    private lateinit var homeEditorPreviewSearchSurface: FrameLayout
+    private var homeEditorCategory = "内容"
     private val searchEngineSelectorButtons = linkedMapOf<String, MaterialButton>()
     private lateinit var browserBackCallback: OnBackPressedCallback
     private var pendingLegacyDownload: PendingDownload? = null
@@ -2584,15 +2591,16 @@ class MainActivity : AppCompatActivity() {
                     if (tabLayoutMode == TabLayoutMode.FULL) {
                         addView(settingsDivider())
                         addView(settingsPercentageSlider(
-                            "完整 Tab 圆角",
-                            "调整包住完整 Tab 的长方形四角圆润程度。",
-                            fullTabCornerPercent
-                        ) { percent ->
-                            fullTabCornerPercent = percent.coerceIn(0, 100)
-                            preferences.edit().putInt(KEY_FULL_TAB_CORNER_PERCENT, fullTabCornerPercent).apply()
-                            applyTabLayout()
-                            refreshSettings()
-                        })
+                            title = "完整 Tab 圆角",
+                            summary = "调整包住完整 Tab 的长方形四角圆润程度。",
+                            percent = fullTabCornerPercent,
+                            onChanged = { percent ->
+                                fullTabCornerPercent = percent.coerceIn(0, 100)
+                                preferences.edit().putInt(KEY_FULL_TAB_CORNER_PERCENT, fullTabCornerPercent).apply()
+                                applyTabLayout()
+                                refreshSettings()
+                            }
+                        ))
                     }
 
                     addView(settingsDivider())
@@ -2682,50 +2690,30 @@ class MainActivity : AppCompatActivity() {
         val palette = currentPalette()
         val form = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(8), dp(20), 0)
+            setPadding(0, dp(2), 0, 0)
         }
-        val nameInput = EditText(this).apply {
-            hint = "名称，例如：站内搜索"
-            setSingleLine(true)
-            setText(customSearchName)
-            setTextColor(palette.text)
-            setHintTextColor(palette.mutedText)
-            background = roundedBackground(palette.input, dp(14), palette.cardStroke)
-            setPadding(dp(12), 0, dp(12), 0)
-        }
-        val urlInput = EditText(this).apply {
-            hint = "搜索引擎地址，使用 {q} 或以 q= 结尾"
-            setSingleLine(true)
-            setText(customSearchUrl)
-            setTextColor(palette.text)
-            setHintTextColor(palette.mutedText)
-            background = roundedBackground(palette.input, dp(14), palette.cardStroke)
-            setPadding(dp(12), 0, dp(12), 0)
-        }
+        val nameInput = frostedDialogInput("名称，例如：站内搜索", customSearchName)
+        val urlInput = frostedDialogInput("搜索引擎地址，使用 {q} 或以 q= 结尾", customSearchUrl)
         form.addView(nameInput, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46)).apply { bottomMargin = dp(10) })
         form.addView(urlInput, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46)))
-        AlertDialog.Builder(this)
-            .setTitle("自定义搜索引擎")
-            .setView(form)
-            .setNegativeButton("取消", null)
-            .setPositiveButton("保存") { _, _ ->
-                val name = nameInput.text.toString().trim()
-                val url = urlInput.text.toString().trim()
-                if (url.isBlank() || (!url.contains("{q}") && !url.contains("q="))) {
-                    toast("请输入含 {q} 或 q= 的搜索地址")
-                    return@setPositiveButton
-                }
-                customSearchName = name.ifBlank { "自定义" }
-                customSearchUrl = url
-                preferences.edit()
-                    .putString(KEY_CUSTOM_SEARCH_NAME, customSearchName)
-                    .putString(KEY_CUSTOM_SEARCH_URL, customSearchUrl)
-                    .putString(KEY_SEARCH_ENGINE, "custom")
-                    .apply()
-                setSearchEngine("custom")
-                toast("已切换到 $customSearchName")
+        showFrostedDialog("自定义搜索引擎", form, "保存") {
+            val name = nameInput.text.toString().trim()
+            val url = urlInput.text.toString().trim()
+            if (url.isBlank() || (!url.contains("{q}") && !url.contains("q="))) {
+                toast("请输入含 {q} 或 q= 的搜索地址")
+                return@showFrostedDialog false
             }
-            .show()
+            customSearchName = name.ifBlank { "自定义" }
+            customSearchUrl = url
+            preferences.edit()
+                .putString(KEY_CUSTOM_SEARCH_NAME, customSearchName)
+                .putString(KEY_CUSTOM_SEARCH_URL, customSearchUrl)
+                .putString(KEY_SEARCH_ENGINE, "custom")
+                .apply()
+            setSearchEngine("custom")
+            toast("已切换到 $customSearchName")
+            true
+        }
     }
 
     private fun refreshSettings() {
@@ -2807,7 +2795,8 @@ class MainActivity : AppCompatActivity() {
         title: String,
         summary: String,
         percent: Int,
-        onChanged: (Int) -> Unit
+        onChanged: (Int) -> Unit,
+        onPreviewChanged: ((Int) -> Unit)? = null
     ): LinearLayout {
         val palette = currentPalette()
         return LinearLayout(this).apply {
@@ -2819,35 +2808,31 @@ class MainActivity : AppCompatActivity() {
                 addView(TextView(this@MainActivity).apply {
                     text = "${percent.coerceIn(0, 100)}%"
                     textSize = 15f
+                    gravity = Gravity.CENTER
                     setTextColor(palette.accent)
-                    gravity = Gravity.CENTER_VERTICAL
-                }.also { value ->
-                    tag = value
-                }, LinearLayout.LayoutParams(dp(52), ViewGroup.LayoutParams.WRAP_CONTENT))
+                    background = roundedBackground(Color.argb(if (isDarkPalette()) 54 else 42, Color.red(palette.accent), Color.green(palette.accent), Color.blue(palette.accent)), dp(10))
+                }.also { value -> tag = value }, LinearLayout.LayoutParams(dp(58), dp(30)))
             }
             addView(header)
             val percentageLabel = header.tag as TextView
             addView(SeekBar(this@MainActivity).apply {
                 max = 100
                 progress = percent.coerceIn(0, 100)
-                progressTintList = ColorStateList.valueOf(palette.accent)
-                thumbTintList = ColorStateList.valueOf(palette.accent)
+                styleElegantSlider(this)
                 contentDescription = "$title：${progress}%"
                 setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                     override fun onProgressChanged(seekBar: SeekBar?, value: Int, fromUser: Boolean) {
-                        percentageLabel.text = "${value.coerceIn(0, 100)}%"
-                        contentDescription = "$title：${value.coerceIn(0, 100)}%"
+                        val safe = value.coerceIn(0, 100)
+                        percentageLabel.text = "$safe%"
+                        contentDescription = "$title：$safe%"
+                        if (fromUser) onPreviewChanged?.invoke(safe)
                     }
-
                     override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
-
                     override fun onStopTrackingTouch(seekBar: SeekBar?) {
                         onChanged(seekBar?.progress?.coerceIn(0, 100) ?: percent.coerceIn(0, 100))
                     }
                 })
-            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(38)).apply {
-                topMargin = dp(4)
-            })
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(40)).apply { topMargin = dp(4) })
         }
     }
 
@@ -2959,52 +2944,163 @@ class MainActivity : AppCompatActivity() {
                 setOnClickListener { hideHomeEditorPage { showSettings() } }
             }, LinearLayout.LayoutParams(dp(44), dp(42)))
         })
+        homeEditorContent.addView(TextView(this).apply {
+            text = "实时预览"
+            textSize = 13f
+            setTextColor(palette.mutedText)
+            setPadding(dp(4), dp(16), 0, dp(7))
+        })
+        homeEditorContent.addView(buildHomeEditorPreview(), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(176)))
+        homeEditorContent.addView(TextView(this).apply {
+            text = "编辑分类"
+            textSize = 16f
+            setTextColor(palette.text)
+            setPadding(0, dp(18), 0, dp(4))
+        })
+        homeEditorContent.addView(settingsChoice("", listOf("内容", "文字", "搜索框"), homeEditorCategory) { selected ->
+            homeEditorCategory = selected
+            rebuildHomeEditorContent()
+        })
+        homeEditorContent.addView(settingsDivider())
+        when (homeEditorCategory) {
+            "内容" -> buildHomeContentSettings()
+            "文字" -> buildHomeTypographySettings()
+            else -> buildHomeSearchFieldSettings()
+        }
+    }
+
+    private fun buildHomeEditorPreview(): MaterialCardView {
+        val palette = currentPalette()
+        return MaterialCardView(this).apply {
+            radius = dp(24).toFloat()
+            cardElevation = dp(3).toFloat()
+            setCardBackgroundColor(Color.argb(if (isDarkPalette()) 222 else 236, Color.red(palette.card), Color.green(palette.card), Color.blue(palette.card)))
+            strokeColor = palette.cardStroke
+            strokeWidth = dp(1)
+            addView(LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER_HORIZONTAL
+                setPadding(dp(20), dp(20), dp(20), dp(18))
+                homeEditorPreviewTitle = TextView(this@MainActivity).apply {
+                    gravity = Gravity.CENTER
+                    includeFontPadding = false
+                }
+                addView(homeEditorPreviewTitle, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(58)))
+                homeEditorPreviewSearchSurface = FrameLayout(this@MainActivity)
+                addView(homeEditorPreviewSearchSurface, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(42)).apply { topMargin = dp(13) })
+            })
+            refreshHomeEditorPreview()
+        }
+    }
+
+    private fun refreshHomeEditorPreview() {
+        if (!::homeEditorPreviewTitle.isInitialized || !::homeEditorPreviewSearchSurface.isInitialized) return
+        val palette = currentPalette()
+        homeEditorPreviewTitle.apply {
+            text = currentHomeTitle()
+            textSize = (homeTitleSize.coerceIn(16, 46)).toFloat()
+            setTextColor(homeTitleColor)
+            typeface = Typeface.create(Typeface.DEFAULT, homeTitleTypefaceStyle())
+        }
+        val alpha = (homeSearchOpacityPercent * 255 / 100).coerceIn(0, 255)
+        val color = Color.argb(alpha, Color.red(palette.input), Color.green(palette.input), Color.blue(palette.input))
+        homeEditorPreviewSearchSurface.removeAllViews()
+        homeEditorPreviewSearchSurface.background = roundedBackground(color, homeSearchRadius(), palette.cardStroke)
+        homeEditorPreviewSearchSurface.addView(TextView(this).apply {
+            text = "搜索或输入网址"
+            textSize = 13f
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(14), 0, dp(14), 0)
+            setTextColor(palette.mutedText)
+        }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (homeSearchBlurPercent > 0) {
+                homeEditorPreviewSearchSurface.setRenderEffect(RenderEffect.createBlurEffect(
+                    dp(1).toFloat() + dp(10) * homeSearchBlurPercent / 100f,
+                    dp(1).toFloat() + dp(10) * homeSearchBlurPercent / 100f,
+                    Shader.TileMode.CLAMP
+                ))
+            } else {
+                homeEditorPreviewSearchSurface.setRenderEffect(null)
+            }
+        }
+    }
+
+    private fun buildHomeContentSettings() {
         homeEditorContent.addView(settingsDescription("首页显示", "选择搜索引擎名称或自定义文本。"))
         homeEditorContent.addView(settingsChoice("标题内容", listOf("搜索引擎", "自定义"), if (homeTitleMode == "custom") "自定义" else "搜索引擎") { selected ->
             homeTitleMode = if (selected == "自定义") "custom" else "engine"
             preferences.edit().putString(KEY_HOME_TITLE_MODE, homeTitleMode).apply()
             refreshHomePreview()
+            refreshHomeEditorPreview()
             rebuildHomeEditorContent()
         })
         if (homeTitleMode == "custom") {
             homeEditorContent.addView(settingsAction("自定义标题", homeCustomTitle.ifBlank { "未设置" }) { showHomeTitleInputDialog() })
         }
-        homeEditorContent.addView(settingsDivider())
-        homeEditorContent.addView(settingsNumberSlider("字体大小", "调整首页标题大小。", homeTitleSize, 16, 64, "sp") { value ->
+    }
+
+    private fun buildHomeTypographySettings() {
+        homeEditorContent.addView(settingsNumberSlider("字体大小", "调整首页标题大小。", homeTitleSize, 16, 64, "sp", { value ->
             homeTitleSize = value
             preferences.edit().putInt(KEY_HOME_TITLE_SIZE, value).apply()
             refreshHomePreview()
-        })
+        }, { value ->
+            homeTitleSize = value
+            refreshHomeEditorPreview()
+        }))
         homeEditorContent.addView(settingsSwitch("加粗", "应用粗体字重。", homeTitleBold) { value ->
             homeTitleBold = value
             preferences.edit().putBoolean(KEY_HOME_TITLE_BOLD, value).apply()
             refreshHomePreview()
+            refreshHomeEditorPreview()
         })
         homeEditorContent.addView(settingsSwitch("斜体", "应用斜体字形。", homeTitleItalic) { value ->
             homeTitleItalic = value
             preferences.edit().putBoolean(KEY_HOME_TITLE_ITALIC, value).apply()
             refreshHomePreview()
+            refreshHomeEditorPreview()
         })
         homeEditorContent.addView(settingsAction("标题颜色", String.format("#%06X", 0xFFFFFF and homeTitleColor)) { showHomeTitleColorPalette() })
-        homeEditorContent.addView(settingsDivider())
-        homeEditorContent.addView(settingsPercentageSlider("搜索框圆角", "调整搜索框圆角。", homeSearchCornerPercent) { value ->
+    }
+
+    private fun buildHomeSearchFieldSettings() {
+        homeEditorContent.addView(settingsPercentageSlider("搜索框圆角", "调整搜索框圆角。", homeSearchCornerPercent, { value ->
             homeSearchCornerPercent = value
             preferences.edit().putInt(KEY_HOME_SEARCH_CORNER, value).apply()
             refreshHomePreview()
-        })
-        homeEditorContent.addView(settingsPercentageSlider("搜索框不透明度", "调整搜索框背景可见度。", homeSearchOpacityPercent) { value ->
+        }, { value ->
+            homeSearchCornerPercent = value
+            refreshHomeEditorPreview()
+        }))
+        homeEditorContent.addView(settingsPercentageSlider("搜索框不透明度", "调整搜索框背景可见度。", homeSearchOpacityPercent, { value ->
             homeSearchOpacityPercent = value.coerceIn(15, 100)
             preferences.edit().putInt(KEY_HOME_SEARCH_OPACITY, homeSearchOpacityPercent).apply()
             refreshHomePreview()
-        })
-        homeEditorContent.addView(settingsPercentageSlider("搜索框模糊", "调整搜索框底层模糊强度。", homeSearchBlurPercent) { value ->
+        }, { value ->
+            homeSearchOpacityPercent = value.coerceIn(15, 100)
+            refreshHomeEditorPreview()
+        }))
+        homeEditorContent.addView(settingsPercentageSlider("搜索框模糊", "调整搜索框底层模糊强度。", homeSearchBlurPercent, { value ->
             homeSearchBlurPercent = value
             preferences.edit().putInt(KEY_HOME_SEARCH_BLUR, value).apply()
             refreshHomePreview()
-        })
+        }, { value ->
+            homeSearchBlurPercent = value
+            refreshHomeEditorPreview()
+        }))
     }
 
-    private fun settingsNumberSlider(title: String, summary: String, value: Int, min: Int, max: Int, suffix: String, onChanged: (Int) -> Unit): LinearLayout {
+    private fun settingsNumberSlider(
+        title: String,
+        summary: String,
+        value: Int,
+        min: Int,
+        max: Int,
+        suffix: String,
+        onChanged: (Int) -> Unit,
+        onPreviewChanged: ((Int) -> Unit)? = null
+    ): LinearLayout {
         val palette = currentPalette()
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -3015,40 +3111,72 @@ class MainActivity : AppCompatActivity() {
                 addView(TextView(this@MainActivity).apply {
                     text = "$value $suffix"
                     textSize = 15f
+                    gravity = Gravity.CENTER
                     setTextColor(palette.accent)
-                }.also { tag = it }, LinearLayout.LayoutParams(dp(60), ViewGroup.LayoutParams.WRAP_CONTENT))
+                    background = roundedBackground(Color.argb(if (isDarkPalette()) 54 else 42, Color.red(palette.accent), Color.green(palette.accent), Color.blue(palette.accent)), dp(10))
+                }.also { tag = it }, LinearLayout.LayoutParams(dp(64), dp(30)))
             }
             addView(header)
             val label = header.tag as TextView
             addView(SeekBar(this@MainActivity).apply {
                 this.max = max - min
                 progress = (value - min).coerceIn(0, max - min)
-                progressTintList = ColorStateList.valueOf(palette.accent)
-                thumbTintList = ColorStateList.valueOf(palette.accent)
+                styleElegantSlider(this)
                 setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                    override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) { label.text = "${min + progress} $suffix" }
+                    override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                        val displayed = min + progress
+                        label.text = "$displayed $suffix"
+                        if (fromUser) onPreviewChanged?.invoke(displayed)
+                    }
                     override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
                     override fun onStopTrackingTouch(seekBar: SeekBar?) { onChanged(min + (seekBar?.progress ?: 0)) }
                 })
-            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(38)))
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(40)).apply { topMargin = dp(4) })
         }
     }
 
-    private fun showHomeTitleInputDialog() {
-        val input = EditText(this).apply {
-            setSingleLine(true)
-            setText(homeCustomTitle)
-            hint = "输入首页标题"
-            setPadding(dp(18), 0, dp(18), 0)
+    private fun styleElegantSlider(seekBar: SeekBar) {
+        val palette = currentPalette()
+        val background = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = dp(4).toFloat()
+            setColor(Color.argb(if (isDarkPalette()) 90 else 68, Color.red(palette.divider), Color.green(palette.divider), Color.blue(palette.divider)))
+            setSize(1, dp(6))
         }
-        AlertDialog.Builder(this).setTitle("自定义首页标题").setView(input)
-            .setNegativeButton("取消", null)
-            .setPositiveButton("保存") { _, _ ->
-                homeCustomTitle = input.text.toString().trim()
-                preferences.edit().putString(KEY_HOME_CUSTOM_TITLE, homeCustomTitle).apply()
-                refreshHomePreview()
-                rebuildHomeEditorContent()
-            }.show()
+        val progress = ClipDrawable(GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = dp(4).toFloat()
+            setColor(palette.accent)
+            setSize(1, dp(6))
+        }, Gravity.START, ClipDrawable.HORIZONTAL)
+        seekBar.progressDrawable = LayerDrawable(arrayOf(background, progress)).apply {
+            setId(0, android.R.id.background)
+            setId(1, android.R.id.progress)
+            setLayerGravity(0, Gravity.CENTER_VERTICAL)
+            setLayerGravity(1, Gravity.CENTER_VERTICAL)
+            setLayerHeight(0, dp(6))
+            setLayerHeight(1, dp(6))
+        }
+        seekBar.thumb = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setSize(dp(18), dp(18))
+            setColor(palette.accent)
+            setStroke(dp(3), palette.card)
+        }
+        seekBar.splitTrack = false
+        seekBar.minimumHeight = dp(40)
+    }
+
+    private fun showHomeTitleInputDialog() {
+        val input = frostedDialogInput("输入首页标题", homeCustomTitle)
+        showFrostedDialog("自定义首页标题", input, "保存") {
+            homeCustomTitle = input.text.toString().trim()
+            preferences.edit().putString(KEY_HOME_CUSTOM_TITLE, homeCustomTitle).apply()
+            refreshHomePreview()
+            refreshHomeEditorPreview()
+            rebuildHomeEditorContent()
+            true
+        }
     }
 
     private fun showHomeTitleColorPalette() {
@@ -3056,9 +3184,9 @@ class MainActivity : AppCompatActivity() {
         val colors = listOf(Color.rgb(28, 30, 34), Color.WHITE, Color.rgb(33, 110, 184), Color.rgb(112, 60, 160), Color.rgb(180, 72, 74), Color.rgb(30, 126, 92))
         val grid = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(18), dp(8), dp(18), dp(8))
+            setPadding(0, dp(2), 0, 0)
         }
-        lateinit var dialog: AlertDialog
+        var dialog: Dialog? = null
         colors.chunked(3).forEach { rowColors ->
             grid.addView(LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -3074,15 +3202,106 @@ class MainActivity : AppCompatActivity() {
                             homeTitleColor = color
                             preferences.edit().putString(KEY_HOME_TITLE_COLOR, String.format("#%06X", 0xFFFFFF and color)).apply()
                             refreshHomePreview()
-                            dialog.dismiss()
+                            refreshHomeEditorPreview()
+                            dialog?.dismiss()
                             rebuildHomeEditorContent()
                         }
                     }, LinearLayout.LayoutParams(0, dp(46), 1f).apply { setMargins(dp(4), dp(4), dp(4), dp(4)) })
                 }
             })
         }
-        dialog = AlertDialog.Builder(this).setTitle("标题颜色").setView(grid).setNegativeButton("取消", null).create()
+        dialog = showFrostedDialog("标题颜色", grid, "关闭") { true }
+    }
+
+    private fun frostedDialogInput(hint: String, value: String): EditText {
+        val palette = currentPalette()
+        return EditText(this).apply {
+            setSingleLine(true)
+            textSize = 14f
+            setText(value)
+            this.hint = hint
+            setTextColor(palette.text)
+            setHintTextColor(palette.mutedText)
+            setPadding(dp(14), 0, dp(14), 0)
+            background = roundedBackground(frostedInputColor(), dp(15), palette.cardStroke)
+        }
+    }
+
+    private fun showFrostedDialog(title: String, content: View, positiveLabel: String, onPositive: () -> Boolean): Dialog {
+        val palette = currentPalette()
+        val dialog = Dialog(this)
+        val card = MaterialCardView(this).apply {
+            radius = dp(26).toFloat()
+            cardElevation = dp(20).toFloat()
+            setCardBackgroundColor(Color.argb(if (isDarkPalette()) 232 else 240, Color.red(palette.card), Color.green(palette.card), Color.blue(palette.card)))
+            strokeColor = palette.cardStroke
+            strokeWidth = dp(1)
+            addView(LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(20), dp(18), dp(20), dp(16))
+                addView(LinearLayout(this@MainActivity).apply {
+                    gravity = Gravity.CENTER_VERTICAL
+                    addView(TextView(this@MainActivity).apply {
+                        text = title
+                        textSize = 19f
+                        setTextColor(palette.text)
+                    }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                    addView(MaterialButton(this@MainActivity).apply {
+                        text = "×"
+                        textSize = 20f
+                        minWidth = 0
+                        minHeight = 0
+                        insetTop = 0
+                        insetBottom = 0
+                        cornerRadius = dp(14)
+                        backgroundTintList = ColorStateList.valueOf(palette.group)
+                        setTextColor(palette.icon)
+                        contentDescription = "关闭"
+                        setOnClickListener { dialog.dismiss() }
+                    }, LinearLayout.LayoutParams(dp(36), dp(36)))
+                })
+                addView(content, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(14) })
+                addView(LinearLayout(this@MainActivity).apply {
+                    gravity = Gravity.END
+                    addView(MaterialButton(this@MainActivity).apply {
+                        text = "取消"
+                        textSize = 14f
+                        isAllCaps = false
+                        minWidth = 0
+                        minHeight = 0
+                        insetTop = 0
+                        insetBottom = 0
+                        cornerRadius = dp(14)
+                        backgroundTintList = ColorStateList.valueOf(palette.group)
+                        setTextColor(palette.icon)
+                        setOnClickListener { dialog.dismiss() }
+                    }, LinearLayout.LayoutParams(dp(74), dp(40)).apply { marginEnd = dp(8) })
+                    addView(MaterialButton(this@MainActivity).apply {
+                        text = positiveLabel
+                        textSize = 14f
+                        isAllCaps = false
+                        minWidth = 0
+                        minHeight = 0
+                        insetTop = 0
+                        insetBottom = 0
+                        cornerRadius = dp(14)
+                        backgroundTintList = ColorStateList.valueOf(palette.accent)
+                        setTextColor(Color.WHITE)
+                        setOnClickListener { if (onPositive()) dialog.dismiss() }
+                    }, LinearLayout.LayoutParams(dp(74), dp(40)))
+                }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(44)).apply { topMargin = dp(16) })
+            })
+        }
+        dialog.setContentView(card)
+        dialog.window?.apply {
+            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            setDimAmount(0.22f)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) setBackgroundBlurRadius(dp(24))
+            setLayout((resources.displayMetrics.widthPixels * 0.86f).roundToInt(), ViewGroup.LayoutParams.WRAP_CONTENT)
+        }
         dialog.show()
+        dialog.window?.setLayout((resources.displayMetrics.widthPixels * 0.86f).roundToInt(), ViewGroup.LayoutParams.WRAP_CONTENT)
+        return dialog
     }
 
     private fun refreshHomePreview() {
