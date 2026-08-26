@@ -691,7 +691,7 @@ class MainActivity : AppCompatActivity() {
             }
             addView(tabChooserContent, FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
+                ViewGroup.LayoutParams.MATCH_PARENT
             ))
         }
         refreshTabChooserContent()
@@ -699,7 +699,7 @@ class MainActivity : AppCompatActivity() {
             tabChooserCard,
             FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
+                tabChooserPreferredHeight(),
                 Gravity.BOTTOM
             ).apply {
                 // 与工具栏相同宽度与位置，但保持独立展示，不与底部 Tab 相连。
@@ -804,7 +804,7 @@ class MainActivity : AppCompatActivity() {
                 dp(42)
             ).apply { if (rowIndex > 0) topMargin = dp(6) })
         }
-        val maxRowsHeight = minOf(dp(186), (root.height * 0.36f).roundToInt().coerceAtLeast(dp(90)))
+        val gridHeight = tabChooserGridHeight()
         tabChooserContent.addView(android.widget.ScrollView(this).apply {
             isFillViewport = false
             isVerticalScrollBarEnabled = false
@@ -812,7 +812,7 @@ class MainActivity : AppCompatActivity() {
             addView(tabRows)
         }, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
-            minOf(dp(42) * ((tabs.size + 1) / 2) + dp(6) * ((tabs.size - 1) / 2), maxRowsHeight)
+            gridHeight
         ))
         tabChooserContent.addView(MaterialButton(this).apply {
             text = "＋  新建标签页"
@@ -832,7 +832,23 @@ class MainActivity : AppCompatActivity() {
             ViewGroup.LayoutParams.MATCH_PARENT,
             dp(42)
         ).apply { topMargin = dp(8) })
+        // 关闭/新增标签后重新计算卡片高度，最多只增长到内部标签区的固定上限。
+        (tabChooserCard.layoutParams as? FrameLayout.LayoutParams)?.let { params ->
+            params.height = tabChooserPreferredHeight()
+            tabChooserCard.layoutParams = params
+        }
         tabChooserContent.post { updateTabChooserWebBackdrop() }
+    }
+
+    private fun tabChooserGridHeight(): Int {
+        val rows = ((tabs.size + 1) / 2).coerceAtLeast(1)
+        val desired = dp(42) * rows + dp(6) * (rows - 1)
+        return desired.coerceAtMost(dp(186))
+    }
+
+    private fun tabChooserPreferredHeight(): Int {
+        // 内边距 20 + 标题 24 + 标签区 + 新建按钮与间隔 50；卡片最大约 280dp，永不使用屏幕高度。
+        return dp(94) + tabChooserGridHeight()
     }
 
     private fun updateTabChooserWebBackdrop() {
