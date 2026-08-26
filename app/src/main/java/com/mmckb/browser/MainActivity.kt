@@ -202,6 +202,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var settingsOverlay: FrameLayout
     private lateinit var settingsDialog: MaterialCardView
     private lateinit var tabToolsOverlay: FrameLayout
+    private lateinit var tabChooserOverlay: FrameLayout
+    private lateinit var tabChooserCard: FrameLayout
+    private lateinit var tabChooserContent: LinearLayout
+    private lateinit var tabChooserWebBackdrop: ImageView
     private lateinit var downloadsOverlay: FrameLayout
     private lateinit var downloadConfirmOverlay: FrameLayout
     private lateinit var downloadConfirmDialog: MaterialCardView
@@ -217,6 +221,9 @@ class MainActivity : AppCompatActivity() {
     private var tabToolsAnchorPoint: PointF? = null
     private var tabToolsStartTranslationX = 0f
     private var tabToolsStartTranslationY = 0f
+    private var tabChooserAnchorPoint: PointF? = null
+    private var tabChooserStartTranslationX = 0f
+    private var tabChooserStartTranslationY = 0f
     private var systemBarInsets: Insets = Insets.NONE
     private var downloadSelectionMode = false
     private val selectedDownloadIds = linkedSetOf<Long>()
@@ -580,7 +587,7 @@ class MainActivity : AppCompatActivity() {
             } else {
                 addView(compactIconButton("⌂", "返回独立首页") { showHome(activeTab ?: return@compactIconButton) })
             }
-            addView(compactIconButton("+", "新建标签页") { createTab() })
+            // 新建标签页统一收纳到极简模式的标签页浮层底部，避免主 Tab 栏出现独立加号。
             addView(compactIconButton("⋮", "打开工具栏") { anchor -> showTabTools(anchor) })
             addView(ProgressBar(this@MainActivity, null, android.R.attr.progressBarStyleHorizontal).also { bar ->
                 progressBar = bar
@@ -638,18 +645,224 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showTabChooser(anchor: View) {
-        PopupMenu(this, anchor).apply {
-            tabs.forEachIndexed { index, tab ->
-                val marker = if (tab.id == activeTabId) "● " else ""
-                menu.add(0, tab.id.toInt(), index, marker + trimTabTitle(if (tab.isHome) "主页" else tab.title))
-            }
-            menu.add(1, 1, tabs.size + 1, "新建标签页")
-            setOnMenuItemClickListener { item ->
-                if (item.groupId == 1) createTab() else selectTab(item.itemId.toLong())
-                true
-            }
-            show()
+        if (::tabChooserOverlay.isInitialized && tabChooserOverlay.parent != null) {
+            hideTabChooser()
+            return
         }
+        val palette = currentPalette()
+        tabChooserAnchorPoint = captureAnchor(anchor)
+        tabChooserOverlay = FrameLayout(this).apply {
+            isClickable = true
+            alpha = 0f
+            setBackgroundColor(Color.argb(45, 0, 0, 0))
+            setOnClickListener { hideTabChooser() }
+        }
+        tabChooserCard = FrameLayout(this).apply {
+            background = roundedBackground(Color.TRANSPARENT, dp(21), palette.cardStroke)
+            clipToOutline = true
+            elevation = dp(16).toFloat()
+            translationZ = dp(8).toFloat()
+            alpha = 0f
+            scaleX = 0.16f
+            scaleY = 0.16f
+            setOnClickListener { /* 点击卡片本身不关闭。 */ }
+
+            tabChooserWebBackdrop = ImageView(this@MainActivity).apply {
+                scaleType = ImageView.ScaleType.MATRIX
+                alpha = if (isDarkPalette()) 0.46f else 0.62f
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    setRenderEffect(RenderEffect.createBlurEffect(dp(18).toFloat(), dp(18).toFloat(), Shader.TileMode.CLAMP))
+                }
+            }
+            addView(tabChooserWebBackdrop, FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            ))
+            addView(View(this@MainActivity).apply {
+                setBackgroundColor(if (isDarkPalette()) Color.argb(76, 18, 20, 26) else Color.argb(86, 255, 255, 255))
+            }, FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            ))
+            tabChooserContent = LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(10), dp(10), dp(10), dp(10))
+            }
+            addView(tabChooserContent, FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ))
+        }
+        refreshTabChooserContent()
+        tabChooserOverlay.addView(
+            tabChooserCard,
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM
+            ).apply {
+                // 与工具栏相同宽度与位置，但保持独立展示，不与底部 Tab 相连。
+                setMargins(dp(8), 0, dp(8), dp(62))
+            }
+        )
+        root.addView(tabChooserOverlay, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.MATCH_PARENT
+        ))
+        updateBrowserBackCallback()
+        tabChooserOverlay.animate().alpha(1f).setDuration(180)
+            .setInterpolator(android.view.animation.DecelerateInterpolator()).start()
+        tabChooserCard.post {
+            updateTabChooserWebBackdrop()
+            val cardLocation = IntArray(2)
+            tabChooserCard.getLocationOnScreen(cardLocation)
+            val anchorPoint = tabChooserAnchorPoint
+                ?: PointF(cardLocation[0] + tabChooserCard.width / 2f, cardLocation[1] + tabChooserCard.height.toFloat())
+            tabChooserCard.pivotX = (anchorPoint.x - cardLocation[0]).coerceIn(0f, tabChooserCard.width.toFloat())
+            tabChooserCard.pivotY = (anchorPoint.y - cardLocation[1]).coerceIn(0f, tabChooserCard.height.toFloat())
+            tabChooserStartTranslationX = anchorPoint.x - (cardLocation[0] + tabChooserCard.pivotX)
+            tabChooserStartTranslationY = anchorPoint.y - (cardLocation[1] + tabChooserCard.pivotY)
+            tabChooserCard.translationX = tabChooserStartTranslationX
+            tabChooserCard.translationY = tabChooserStartTranslationY
+            tabChooserCard.animate().alpha(1f).scaleX(1f).scaleY(1f)
+                .translationX(0f).translationY(0f)
+                .setDuration(220)
+                .setInterpolator(android.view.animation.OvershootInterpolator(1.04f))
+                .start()
+        }
+    }
+
+    private fun refreshTabChooserContent() {
+        if (!::tabChooserContent.isInitialized) return
+        val palette = currentPalette()
+        tabChooserContent.removeAllViews()
+        tabChooserContent.addView(TextView(this).apply {
+            text = "标签页 · ${tabs.size}"
+            textSize = 13f
+            setTextColor(palette.mutedText)
+            setPadding(dp(4), 0, dp(4), dp(7))
+        })
+        val tabScroller = android.widget.HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            overScrollMode = View.OVER_SCROLL_NEVER
+            addView(LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                tabs.forEach { tab ->
+                    val selected = tab.id == activeTabId
+                    val item = LinearLayout(this@MainActivity).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        gravity = Gravity.CENTER_VERTICAL
+                        setPadding(dp(11), 0, dp(3), 0)
+                        background = roundedBackground(
+                            if (selected) frostedSurfaceColor() else Color.argb(if (isDarkPalette()) 58 else 72, 255, 255, 255),
+                            dp(14),
+                            if (selected) palette.cardStroke else Color.argb(40, 180, 180, 184)
+                        )
+                        contentDescription = "${trimTabTitle(if (tab.isHome) "主页" else tab.title)} 标签页"
+                        setOnClickListener {
+                            selectTab(tab.id)
+                            hideTabChooser()
+                        }
+                    }
+                    item.addView(TextView(this@MainActivity).apply {
+                        text = trimTabTitle(if (tab.isHome) "主页" else tab.title)
+                        maxLines = 1
+                        ellipsize = android.text.TextUtils.TruncateAt.END
+                        textSize = 13f
+                        setTextColor(if (selected) palette.text else palette.mutedText)
+                    }, LinearLayout.LayoutParams(dp(124), dp(42)))
+                    item.addView(MaterialButton(this@MainActivity).apply {
+                        text = "×"
+                        textSize = 17f
+                        contentDescription = "关闭 ${trimTabTitle(if (tab.isHome) "主页" else tab.title)} 标签页"
+                        minWidth = 0
+                        minHeight = 0
+                        insetTop = 0
+                        insetBottom = 0
+                        setPadding(0, 0, 0, 0)
+                        cornerRadius = dp(12)
+                        backgroundTintList = ColorStateList.valueOf(Color.TRANSPARENT)
+                        setTextColor(palette.icon)
+                        setOnClickListener {
+                            closeTab(tab.id)
+                            refreshTabChooserContent()
+                        }
+                    }, LinearLayout.LayoutParams(dp(34), dp(42)))
+                    addView(item, LinearLayout.LayoutParams(dp(164), dp(42)).apply { marginEnd = dp(7) })
+                }
+            })
+        }
+        tabChooserContent.addView(tabScroller, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            dp(48)
+        ))
+        tabChooserContent.addView(MaterialButton(this).apply {
+            text = "＋  新建标签页"
+            textSize = 14f
+            isAllCaps = false
+            contentDescription = "新建标签页"
+            minHeight = 0
+            insetTop = 0
+            insetBottom = 0
+            cornerRadius = dp(15)
+            backgroundTintList = ColorStateList.valueOf(frostedSurfaceColor())
+            setTextColor(palette.icon)
+            setOnClickListener {
+                hideTabChooser { createTab() }
+            }
+        }, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            dp(42)
+        ).apply { topMargin = dp(8) })
+    }
+
+    private fun updateTabChooserWebBackdrop() {
+        if (!::tabChooserCard.isInitialized || !::tabChooserWebBackdrop.isInitialized ||
+            webContainer.width <= 0 || webContainer.height <= 0 ||
+            tabChooserCard.width <= 0 || tabChooserCard.height <= 0
+        ) return
+        val rootLocation = IntArray(2)
+        val cardLocation = IntArray(2)
+        root.getLocationOnScreen(rootLocation)
+        tabChooserCard.getLocationOnScreen(cardLocation)
+        val cardTopInRoot = (cardLocation[1] - rootLocation[1]).coerceAtLeast(0)
+        val sourceY = cardTopInRoot.coerceAtMost((webContainer.height - 1).coerceAtLeast(0))
+        val sourceHeight = (webContainer.height - sourceY).coerceAtLeast(1)
+        val source = try {
+            Bitmap.createBitmap(webContainer.width, sourceHeight, Bitmap.Config.ARGB_8888).also { bitmap ->
+                val canvas = Canvas(bitmap)
+                canvas.translate(0f, -sourceY.toFloat())
+                webContainer.draw(canvas)
+            }
+        } catch (_: OutOfMemoryError) {
+            return
+        }
+        val scaled = Bitmap.createScaledBitmap(source, tabChooserCard.width, tabChooserCard.height, true)
+        if (scaled !== source) source.recycle()
+        tabChooserWebBackdrop.setImageBitmap(scaled)
+    }
+
+    private fun hideTabChooser(after: () -> Unit = {}) {
+        if (!::tabChooserOverlay.isInitialized || tabChooserOverlay.parent == null) {
+            after()
+            return
+        }
+        tabChooserOverlay.animate().alpha(0f).setDuration(160)
+            .setInterpolator(android.view.animation.AccelerateInterpolator()).start()
+        tabChooserCard.animate().alpha(0f).scaleX(0.16f).scaleY(0.16f)
+            .translationX(tabChooserStartTranslationX).translationY(tabChooserStartTranslationY)
+            .setDuration(180)
+            .setInterpolator(android.view.animation.AccelerateInterpolator())
+            .start()
+        tabChooserCard.postDelayed({
+            if (tabChooserOverlay.parent != null) root.removeView(tabChooserOverlay)
+            tabChooserAnchorPoint = null
+            tabChooserStartTranslationX = 0f
+            tabChooserStartTranslationY = 0f
+            updateBrowserBackCallback()
+            after()
+        }, 190L)
     }
 
     private fun ovalNavButton(symbol: String, description: String, action: () -> Unit): MaterialButton {
@@ -925,7 +1138,8 @@ class MainActivity : AppCompatActivity() {
             (::downloadConfirmOverlay.isInitialized && downloadConfirmOverlay.parent != null) ||
             (::downloadsOverlay.isInitialized && downloadsOverlay.parent != null) ||
             (::settingsOverlay.isInitialized && settingsOverlay.parent != null) ||
-            (::tabToolsOverlay.isInitialized && tabToolsOverlay.parent != null)
+            (::tabToolsOverlay.isInitialized && tabToolsOverlay.parent != null) ||
+            (::tabChooserOverlay.isInitialized && tabChooserOverlay.parent != null)
 
     private fun canHandleBrowserBack(): Boolean {
         val tab = activeTab ?: return false
@@ -945,6 +1159,7 @@ class MainActivity : AppCompatActivity() {
         ::downloadsOverlay.isInitialized && downloadsOverlay.parent != null -> downloadsOverlay.getChildAt(0)
         ::settingsOverlay.isInitialized && settingsOverlay.parent != null -> settingsDialog
         ::tabToolsOverlay.isInitialized && tabToolsOverlay.parent != null -> tabToolsOverlay.getChildAt(0)
+        ::tabChooserOverlay.isInitialized && tabChooserOverlay.parent != null -> tabChooserCard
         else -> webContainer.takeIf { it.childCount > 0 }
     }
 
@@ -1014,6 +1229,7 @@ class MainActivity : AppCompatActivity() {
             ::downloadsOverlay.isInitialized && downloadsOverlay.parent != null -> hideDownloadsOverlay()
             ::settingsOverlay.isInitialized && settingsOverlay.parent != null -> hideSettings()
             ::tabToolsOverlay.isInitialized && tabToolsOverlay.parent != null -> hideTabTools()
+            ::tabChooserOverlay.isInitialized && tabChooserOverlay.parent != null -> hideTabChooser()
             else -> handleBrowserBack()
         }
         root.post { updateBrowserBackCallback() }
