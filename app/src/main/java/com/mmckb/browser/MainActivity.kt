@@ -182,6 +182,9 @@ class MainActivity : AppCompatActivity() {
     private var settingsStartTranslationX = 0f
     private var settingsStartTranslationY = 0f
     private var settingsAnchorPoint: PointF? = null
+    private var tabToolsAnchorPoint: PointF? = null
+    private var tabToolsStartTranslationX = 0f
+    private var tabToolsStartTranslationY = 0f
     private var systemBarInsets: Insets = Insets.NONE
 
     private val activeTab: BrowserTab?
@@ -914,6 +917,8 @@ class MainActivity : AppCompatActivity() {
             return
         }
         val palette = currentPalette()
+        // 在覆盖层创建前记录触发按钮中心，后续布局完成后用同一屏幕坐标作为动画原点。
+        tabToolsAnchorPoint = captureAnchor(anchor)
         // Apple Design 层级原则：模糊层与内容层分离
         // 模糊层在底层，工具栏浮于其上且不被模糊
         tabToolsOverlay = FrameLayout(this).apply {
@@ -933,9 +938,9 @@ class MainActivity : AppCompatActivity() {
             strokeColor = palette.cardStroke
             strokeWidth = dp(1)
             alpha = 0f
-            scaleX = 0.86f
-            scaleY = 0.86f
-            translationY = dp(30).toFloat()
+            // 真实起点在 post 布局时计算：菜单将折叠到三小点按钮中心，而非固定向下 30dp。
+            scaleX = 0.16f
+            scaleY = 0.16f
             setOnClickListener { /* 点击菜单自身不关闭。 */ }
 
             // 工具栏内容：垂直布局
@@ -987,20 +992,31 @@ class MainActivity : AppCompatActivity() {
         // 流畅交互：遮罩淡入
         tabToolsOverlay.animate().alpha(1f).setDuration(200).setInterpolator(android.view.animation.DecelerateInterpolator()).start()
         toolbar.post {
-            toolbar.pivotX = toolbar.width / 2f
-            toolbar.pivotY = toolbar.height.toFloat()
-            // 流畅交互：弹簧式展开
-            springAppear(toolbar, 0.7f)
-            // 流畅交互：按钮错开出现
+            val toolbarLocation = IntArray(2)
+            toolbar.getLocationOnScreen(toolbarLocation)
+            val anchorPoint = tabToolsAnchorPoint
+                ?: PointF(toolbarLocation[0] + toolbar.width / 2f, toolbarLocation[1] + toolbar.height.toFloat())
+            // 将 pivot 放在三小点相对于菜单的位置；纵向锚点位于菜单外时贴到最接近的菜单边缘。
+            toolbar.pivotX = (anchorPoint.x - toolbarLocation[0]).coerceIn(0f, toolbar.width.toFloat())
+            toolbar.pivotY = (anchorPoint.y - toolbarLocation[1]).coerceIn(0f, toolbar.height.toFloat())
+            // 缩小后的 pivot 精确落回三小点中心；展开与关闭共享这对位移，保证“从哪来、回哪去”。
+            tabToolsStartTranslationX = anchorPoint.x - (toolbarLocation[0] + toolbar.pivotX)
+            tabToolsStartTranslationY = anchorPoint.y - (toolbarLocation[1] + toolbar.pivotY)
+            toolbar.translationX = tabToolsStartTranslationX
+            toolbar.translationY = tabToolsStartTranslationY
+            toolbar.animate().alpha(1f).scaleX(1f).scaleY(1f)
+                .translationX(0f).translationY(0f)
+                .setDuration(240)
+                .setInterpolator(android.view.animation.OvershootInterpolator(1.08f))
+                .start()
+            // 菜单内容在容器展开后轻微错开出现，避免视觉上先于容器出现。
             val contentView = toolbar.getChildAt(0) as? LinearLayout
             contentView?.let { container ->
                 for (i in 0 until container.childCount) {
                     val row = container.getChildAt(i)
                     row.alpha = 0f
-                    row.translationY = dp(12).toFloat()
-                    row.postDelayed({
-                        springAppear(row, 0.8f)
-                    }, 60L + i * 50L)
+                    row.translationY = dp(10).toFloat()
+                    row.postDelayed({ springAppear(row, 0.8f) }, 70L + i * 50L)
                 }
             }
         }
@@ -1100,12 +1116,19 @@ class MainActivity : AppCompatActivity() {
             return
         }
         val toolbar = tabToolsOverlay.getChildAt(0)
-        // 流畅交互：弹簧式收起 + 遮罩淡出
+        // 与打开路径严格反向：菜单收缩并回到最初三小点按钮的中心。
         tabToolsOverlay.animate().alpha(0f).setDuration(180).setInterpolator(android.view.animation.AccelerateInterpolator()).start()
-        springDismiss(toolbar, 0.86f, 30, 0.85f)
+        toolbar.animate().alpha(0f).scaleX(0.16f).scaleY(0.16f)
+            .translationX(tabToolsStartTranslationX).translationY(tabToolsStartTranslationY)
+            .setDuration(190)
+            .setInterpolator(android.view.animation.AccelerateInterpolator())
+            .start()
         // 延迟移除视图（等待动画基本完成）
         toolbar.postDelayed({
             if (tabToolsOverlay.parent != null) root.removeView(tabToolsOverlay)
+            tabToolsAnchorPoint = null
+            tabToolsStartTranslationX = 0f
+            tabToolsStartTranslationY = 0f
             updateBrowserBackCallback()
             after()
         }, 200L)
