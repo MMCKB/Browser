@@ -652,9 +652,10 @@ class MainActivity : AppCompatActivity() {
         val palette = currentPalette()
         tabChooserAnchorPoint = captureAnchor(anchor)
         tabChooserOverlay = FrameLayout(this).apply {
+            // 仅作为透明点击承载层，不绘制全屏遮罩；视觉上只出现独立小浮窗。
             isClickable = true
-            alpha = 0f
-            setBackgroundColor(Color.argb(45, 0, 0, 0))
+            alpha = 1f
+            setBackgroundColor(Color.TRANSPARENT)
             setOnClickListener { hideTabChooser() }
         }
         tabChooserCard = FrameLayout(this).apply {
@@ -710,8 +711,6 @@ class MainActivity : AppCompatActivity() {
             ViewGroup.LayoutParams.MATCH_PARENT
         ))
         updateBrowserBackCallback()
-        tabChooserOverlay.animate().alpha(1f).setDuration(180)
-            .setInterpolator(android.view.animation.DecelerateInterpolator()).start()
         tabChooserCard.post {
             updateTabChooserWebBackdrop()
             val cardLocation = IntArray(2)
@@ -742,60 +741,78 @@ class MainActivity : AppCompatActivity() {
             setTextColor(palette.mutedText)
             setPadding(dp(4), 0, dp(4), dp(7))
         })
-        val tabScroller = android.widget.HorizontalScrollView(this).apply {
-            isHorizontalScrollBarEnabled = false
-            overScrollMode = View.OVER_SCROLL_NEVER
-            addView(LinearLayout(this@MainActivity).apply {
+
+        // 两列横向标签网格：标签少时保持很小的窗口；增加标签时按行向上叠放。
+        val tabRows = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        tabs.chunked(2).forEachIndexed { rowIndex, rowTabs ->
+            val row = LinearLayout(this@MainActivity).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
-                tabs.forEach { tab ->
-                    val selected = tab.id == activeTabId
-                    val item = LinearLayout(this@MainActivity).apply {
-                        orientation = LinearLayout.HORIZONTAL
-                        gravity = Gravity.CENTER_VERTICAL
-                        setPadding(dp(11), 0, dp(3), 0)
-                        background = roundedBackground(
-                            if (selected) frostedSurfaceColor() else Color.argb(if (isDarkPalette()) 58 else 72, 255, 255, 255),
-                            dp(14),
-                            if (selected) palette.cardStroke else Color.argb(40, 180, 180, 184)
-                        )
-                        contentDescription = "${trimTabTitle(if (tab.isHome) "主页" else tab.title)} 标签页"
-                        setOnClickListener {
-                            selectTab(tab.id)
-                            hideTabChooser()
-                        }
+            }
+            rowTabs.forEachIndexed { columnIndex, tab ->
+                val selected = tab.id == activeTabId
+                val item = LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(dp(9), 0, dp(2), 0)
+                    background = roundedBackground(
+                        if (selected) frostedSurfaceColor() else Color.argb(if (isDarkPalette()) 58 else 72, 255, 255, 255),
+                        dp(14),
+                        if (selected) palette.cardStroke else Color.argb(40, 180, 180, 184)
+                    )
+                    contentDescription = "${trimTabTitle(if (tab.isHome) "主页" else tab.title)} 标签页"
+                    setOnClickListener {
+                        selectTab(tab.id)
+                        hideTabChooser()
                     }
-                    item.addView(TextView(this@MainActivity).apply {
-                        text = trimTabTitle(if (tab.isHome) "主页" else tab.title)
-                        maxLines = 1
-                        ellipsize = android.text.TextUtils.TruncateAt.END
-                        textSize = 13f
-                        setTextColor(if (selected) palette.text else palette.mutedText)
-                    }, LinearLayout.LayoutParams(dp(124), dp(42)))
-                    item.addView(MaterialButton(this@MainActivity).apply {
-                        text = "×"
-                        textSize = 17f
-                        contentDescription = "关闭 ${trimTabTitle(if (tab.isHome) "主页" else tab.title)} 标签页"
-                        minWidth = 0
-                        minHeight = 0
-                        insetTop = 0
-                        insetBottom = 0
-                        setPadding(0, 0, 0, 0)
-                        cornerRadius = dp(12)
-                        backgroundTintList = ColorStateList.valueOf(Color.TRANSPARENT)
-                        setTextColor(palette.icon)
-                        setOnClickListener {
-                            closeTab(tab.id)
-                            refreshTabChooserContent()
-                        }
-                    }, LinearLayout.LayoutParams(dp(34), dp(42)))
-                    addView(item, LinearLayout.LayoutParams(dp(164), dp(42)).apply { marginEnd = dp(7) })
                 }
-            })
+                item.addView(TextView(this@MainActivity).apply {
+                    text = trimTabTitle(if (tab.isHome) "主页" else tab.title)
+                    maxLines = 1
+                    ellipsize = android.text.TextUtils.TruncateAt.END
+                    textSize = 13f
+                    setTextColor(if (selected) palette.text else palette.mutedText)
+                }, LinearLayout.LayoutParams(0, dp(42), 1f))
+                item.addView(MaterialButton(this@MainActivity).apply {
+                    text = "×"
+                    textSize = 17f
+                    contentDescription = "关闭 ${trimTabTitle(if (tab.isHome) "主页" else tab.title)} 标签页"
+                    minWidth = 0
+                    minHeight = 0
+                    insetTop = 0
+                    insetBottom = 0
+                    setPadding(0, 0, 0, 0)
+                    cornerRadius = dp(12)
+                    backgroundTintList = ColorStateList.valueOf(Color.TRANSPARENT)
+                    setTextColor(palette.icon)
+                    setOnClickListener {
+                        closeTab(tab.id)
+                        refreshTabChooserContent()
+                    }
+                }, LinearLayout.LayoutParams(dp(32), dp(42)))
+                row.addView(item, LinearLayout.LayoutParams(0, dp(42), 1f).apply {
+                    if (columnIndex == 0 && rowTabs.size > 1) marginEnd = dp(6)
+                })
+            }
+            if (rowTabs.size == 1) {
+                row.addView(View(this@MainActivity), LinearLayout.LayoutParams(0, dp(42), 1f).apply { marginStart = dp(6) })
+            }
+            tabRows.addView(row, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(42)
+            ).apply { if (rowIndex > 0) topMargin = dp(6) })
         }
-        tabChooserContent.addView(tabScroller, LinearLayout.LayoutParams(
+        val maxRowsHeight = minOf(dp(186), (root.height * 0.36f).roundToInt().coerceAtLeast(dp(90)))
+        tabChooserContent.addView(android.widget.ScrollView(this).apply {
+            isFillViewport = false
+            isVerticalScrollBarEnabled = false
+            overScrollMode = View.OVER_SCROLL_NEVER
+            addView(tabRows)
+        }, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
-            dp(48)
+            minOf(dp(42) * ((tabs.size + 1) / 2) + dp(6) * ((tabs.size - 1) / 2), maxRowsHeight)
         ))
         tabChooserContent.addView(MaterialButton(this).apply {
             text = "＋  新建标签页"
@@ -815,6 +832,7 @@ class MainActivity : AppCompatActivity() {
             ViewGroup.LayoutParams.MATCH_PARENT,
             dp(42)
         ).apply { topMargin = dp(8) })
+        tabChooserContent.post { updateTabChooserWebBackdrop() }
     }
 
     private fun updateTabChooserWebBackdrop() {
@@ -848,8 +866,6 @@ class MainActivity : AppCompatActivity() {
             after()
             return
         }
-        tabChooserOverlay.animate().alpha(0f).setDuration(160)
-            .setInterpolator(android.view.animation.AccelerateInterpolator()).start()
         tabChooserCard.animate().alpha(0f).scaleX(0.16f).scaleY(0.16f)
             .translationX(tabChooserStartTranslationX).translationY(tabChooserStartTranslationY)
             .setDuration(180)
