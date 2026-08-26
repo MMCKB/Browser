@@ -163,6 +163,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var root: FrameLayout
     private lateinit var webContainer: FrameLayout
     private lateinit var bottomControlCard: FrameLayout
+    private lateinit var frostedPill: FrameLayout
     private lateinit var frostedWebBackdrop: ImageView
     private val frostedBackdropHandler = Handler(Looper.getMainLooper())
     private val refreshFrostedBackdropRunnable = Runnable { updateFrostedWebBackdrop() }
@@ -320,8 +321,8 @@ class MainActivity : AppCompatActivity() {
         window.statusBarColor = palette.page
         window.navigationBarColor = palette.page
         bottomControlCard = buildBottomControlCard()
-        // 磨砂背景使用 MATCH_PARENT；父容器使用确定高度，防止全屏测量。
-        val tabBarHeight = dp(if (tabLayoutMode == TabLayoutMode.FULL) 82 else 44)
+        // 外层仅负责底部定位，视觉胶囊在其内侧四边等距收缩，避免形成大面积背景栏。
+        val tabBarHeight = dp(if (tabLayoutMode == TabLayoutMode.FULL) 92 else 54)
         root.addView(
             bottomControlCard,
             1,
@@ -336,41 +337,53 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun buildBottomControlCard(): FrameLayout {
-        // 网页本身位于该容器下方；背景快照仅用于 Android 31+ 的真实毛玻璃效果。
+        // 外层完全透明，仅负责锚定在屏幕底部；网页会在胶囊四周完整透出。
         return FrameLayout(this).apply {
+            setBackgroundColor(Color.TRANSPARENT)
             val palette = currentPalette()
-            // 整个 Tab 区是一枚椭圆胶囊；内部与边缘均保留 5dp 一致空隙。
-            val radius = dp(if (tabLayoutMode == TabLayoutMode.FULL) 41 else 22)
-            background = roundedBackground(Color.TRANSPARENT, radius, palette.cardStroke)
-            clipToOutline = true
-            frostedWebBackdrop = ImageView(this@MainActivity).apply {
-                scaleType = ImageView.ScaleType.MATRIX
-                alpha = if (isDarkPalette()) 0.46f else 0.62f
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    setRenderEffect(RenderEffect.createBlurEffect(dp(18).toFloat(), dp(18).toFloat(), Shader.TileMode.CLAMP))
+            val visualGap = dp(6)
+            frostedPill = FrameLayout(this@MainActivity).apply {
+                // 唯一有背景的视觉表面：贴合控件内容的单个椭圆磨砂胶囊。
+                val radius = dp(if (tabLayoutMode == TabLayoutMode.FULL) 40 else 21)
+                background = roundedBackground(Color.TRANSPARENT, radius, palette.cardStroke)
+                clipToOutline = true
+                frostedWebBackdrop = ImageView(this@MainActivity).apply {
+                    scaleType = ImageView.ScaleType.MATRIX
+                    alpha = if (isDarkPalette()) 0.46f else 0.62f
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        setRenderEffect(RenderEffect.createBlurEffect(dp(18).toFloat(), dp(18).toFloat(), Shader.TileMode.CLAMP))
+                    }
                 }
+                addView(frostedWebBackdrop, FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT
+                ))
+                addView(View(this@MainActivity).apply {
+                    // 低透明度着色层只覆盖胶囊，不能形成整块底栏。
+                    setBackgroundColor(if (isDarkPalette()) Color.argb(76, 18, 20, 26) else Color.argb(86, 255, 255, 255))
+                }, FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT
+                ))
+                addView(LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    // 所有控件到胶囊边缘的上下左右距离均为 5dp。
+                    setPadding(dp(5), dp(5), dp(5), dp(5))
+                    addView(buildPrimaryControlRow())
+                    if (tabLayoutMode == TabLayoutMode.FULL) {
+                        addView(buildFullTabRow(), LinearLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            dp(34)
+                        ).apply { topMargin = dp(4) })
+                    }
+                })
             }
-            addView(frostedWebBackdrop, FrameLayout.LayoutParams(
+            addView(frostedPill, FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT
-            ))
-            addView(View(this@MainActivity).apply {
-                // 兼容层：既让网页透出，也确保深浅主题下的文本和图标稳定可读。
-                setBackgroundColor(if (isDarkPalette()) Color.argb(76, 18, 20, 26) else Color.argb(86, 255, 255, 255))
-            }, FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT
-            ))
-            addView(LinearLayout(this@MainActivity).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(dp(5), dp(5), dp(5), dp(5))
-                addView(buildPrimaryControlRow())
-                if (tabLayoutMode == TabLayoutMode.FULL) {
-                    addView(buildFullTabRow(), LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        dp(34)
-                    ).apply { topMargin = dp(4) })
-                }
+            ).apply {
+                // 胶囊与透明定位容器的四边间距一致。
+                setMargins(visualGap, visualGap, visualGap, visualGap)
             })
         }
     }
@@ -388,13 +401,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateFrostedWebBackdrop() {
-        if (!::bottomControlCard.isInitialized || !::frostedWebBackdrop.isInitialized ||
-            webContainer.width <= 0 || webContainer.height <= 0 || bottomControlCard.width <= 0 || bottomControlCard.height <= 0
+        if (!::bottomControlCard.isInitialized || !::frostedPill.isInitialized || !::frostedWebBackdrop.isInitialized ||
+            webContainer.width <= 0 || webContainer.height <= 0 || frostedPill.width <= 0 || frostedPill.height <= 0
         ) return
         val rootLocation = IntArray(2)
         val cardLocation = IntArray(2)
         root.getLocationOnScreen(rootLocation)
-        bottomControlCard.getLocationOnScreen(cardLocation)
+        frostedPill.getLocationOnScreen(cardLocation)
         val cardTopInRoot = (cardLocation[1] - rootLocation[1]).coerceAtLeast(0)
         val sourceY = cardTopInRoot.coerceAtMost((webContainer.height - 1).coerceAtLeast(0))
         val sourceHeight = (webContainer.height - sourceY).coerceAtLeast(1)
@@ -407,7 +420,7 @@ class MainActivity : AppCompatActivity() {
         } catch (_: OutOfMemoryError) {
             return
         }
-        val scaled = Bitmap.createScaledBitmap(source, bottomControlCard.width, bottomControlCard.height, true)
+        val scaled = Bitmap.createScaledBitmap(source, frostedPill.width, frostedPill.height, true)
         if (scaled !== source) source.recycle()
         frostedWebBackdrop.setImageBitmap(scaled)
     }
