@@ -282,12 +282,15 @@ class MainActivity : AppCompatActivity() {
         window.statusBarColor = palette.page
         window.navigationBarColor = palette.page
         bottomControlCard = buildBottomControlCard()
+        // 背景 ImageView 使用 MATCH_PARENT；父容器必须有确定高度，不能使用 WRAP_CONTENT。
+        // 否则 FrameLayout 会把模糊层按整屏测量，导致整个 Tab 区错误地停在顶部。
+        val tabBarHeight = dp(if (tabLayoutMode == TabLayoutMode.FULL) 82 else 44)
         root.addView(
             bottomControlCard,
             1,
             FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
+                tabBarHeight,
                 Gravity.BOTTOM
             ).apply {
                 setMargins(dp(12), 0, dp(12), dp(10))
