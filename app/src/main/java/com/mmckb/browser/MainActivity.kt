@@ -274,6 +274,8 @@ class MainActivity : AppCompatActivity() {
         installSystemBarsScrim()
         attachBottomControls()
         setContentView(root)
+        // 仅在根视图已附着到窗口后控制透明系统栏；部分设备会在启动阶段对未附着 View 的 Insets 控制器抛异常。
+        root.post { applySystemBarPresentation() }
         createTab()
 
         browserBackCallback = object : OnBackPressedCallback(false) {
@@ -390,8 +392,10 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
-    private fun applySystemBarPresentation(palette: Palette) {
-        // 保持状态栏和导航栏由系统绘制，网页在其下延伸；渐变遮罩只用于柔化文字与内容的交界。
+    private fun applySystemBarPresentation() {
+        // 保持状态栏和导航栏由系统绘制，网页在其下延伸；渐变遮罩只用于柔化图标与网页内容的交界。
+        // 关键防护：不要在 setContentView() 前构造 Insets 控制器，避免部分设备启动时因 View 尚未附着而闪退。
+        if (!root.isAttachedToWindow) return
         window.statusBarColor = Color.TRANSPARENT
         window.navigationBarColor = Color.TRANSPARENT
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -432,7 +436,6 @@ class MainActivity : AppCompatActivity() {
         }
         val palette = currentPalette()
         root.setBackgroundColor(palette.page)
-        applySystemBarPresentation(palette)
         bottomControlCard = buildBottomControlCard()
         // 极简模式为短椭圆胶囊；完整模式是装下双行控件的圆角长方形容器。
         val tabBarHeight = dp(if (tabLayoutMode == TabLayoutMode.FULL) 96 else 54)
@@ -446,6 +449,7 @@ class MainActivity : AppCompatActivity() {
             )
         )
         updateBottomControlPosition()
+        if (root.isAttachedToWindow) applySystemBarPresentation()
         bottomControlCard.post { scheduleFrostedBackdropRefresh() }
     }
 
@@ -2551,7 +2555,6 @@ class MainActivity : AppCompatActivity() {
         // 刷新整个界面以应用新主题
         val palette = currentPalette()
         root.setBackgroundColor(palette.page)
-        applySystemBarPresentation(palette)
         // 重新构建底部控件
         attachBottomControls()
         // 刷新 web 容器内当前内容
