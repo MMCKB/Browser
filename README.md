@@ -2,7 +2,7 @@
 
 ![浮悬浏览器图标](branding/floating_browser_icon_minimal_white.png)
 
-> **白底极简的原生 Kotlin Android 浏览器。** 以网页内容为中心，使用底部低干扰控制区、多标签浏览和独立本地搜索首页；不使用 Expo、React Native 或 Jetpack Compose。
+> **白底极简的原生 Kotlin Android 浏览器。** 以网页内容为中心，使用底部低干扰控制区、多标签浏览和独立本地搜索首页；不使用 Expo、React Native 或 Jetpack Compose。（此项目为Vibe Coding）
 
 [![Platform](https://img.shields.io/badge/platform-Android-14213D?style=flat-square)](https://developer.android.com/)
 [![Language](https://img.shields.io/badge/language-Kotlin-2563EB?style=flat-square)](https://kotlinlang.org/)
