@@ -51,6 +51,7 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.ScrollView
+import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.BackEventCompat
@@ -78,11 +79,8 @@ class MainActivity : AppCompatActivity() {
         private const val KEY_DESKTOP_MODE = "desktop_mode"
         private const val KEY_BOOKMARKS = "bookmarks"
         private const val KEY_THEME_MODE = "theme_mode"
-        private const val KEY_UI_DESIGN_STYLE = "ui_design_style"
-        private const val KEY_MD3_PALETTE_STYLE = "md3_palette_style"
-        private const val KEY_MD3_COLOR_SPEC = "md3_color_spec"
-        private const val KEY_MD3_DYNAMIC_COLOR = "md3_dynamic_color"
         private const val KEY_TAB_LAYOUT_MODE = "tab_layout_mode"
+        private const val KEY_FULL_TAB_CORNER_PERCENT = "full_tab_corner_percent"
         private const val LEGACY_STORAGE_PERMISSION_REQUEST_CODE = 4012
         private const val NOTIFICATION_PERMISSION_REQUEST_CODE = 4013
         private const val KEY_DOWNLOAD_NOTIFICATIONS = "download_notifications_enabled"
@@ -103,35 +101,6 @@ class MainActivity : AppCompatActivity() {
 
         companion object {
             fun fromKey(key: String?) = entries.firstOrNull { it.key == key } ?: SYSTEM
-        }
-    }
-
-    private enum class UiDesignStyle(val key: String, val label: String) {
-        CURRENT("current", "现在的"),
-        MD3("md3", "Google MD3 风格");
-
-        companion object {
-            fun fromKey(key: String?) = entries.firstOrNull { it.key == key } ?: CURRENT
-        }
-    }
-
-    private enum class Md3PaletteStyle(val key: String, val label: String) {
-        TONAL_SPOT("tonal_spot", "Tonal Spot"),
-        VIBRANT("vibrant", "Vibrant"),
-        EXPRESSIVE("expressive", "Expressive");
-
-        companion object {
-            fun fromKey(key: String?) = entries.firstOrNull { it.key == key } ?: TONAL_SPOT
-        }
-    }
-
-    private enum class Md3ColorSpec(val key: String, val label: String) {
-        STANDARD("standard", "标准"),
-        FIDELITY("fidelity", "保真"),
-        CONTENT("content", "内容");
-
-        companion object {
-            fun fromKey(key: String?) = entries.firstOrNull { it.key == key } ?: STANDARD
         }
     }
 
@@ -207,11 +176,8 @@ class MainActivity : AppCompatActivity() {
     private var javascriptEnabled = true
     private var desktopModeEnabled = false
     private var themeMode = ThemeMode.SYSTEM
-    private var uiDesignStyle = UiDesignStyle.CURRENT
-    private var md3PaletteStyle = Md3PaletteStyle.TONAL_SPOT
-    private var md3ColorSpec = Md3ColorSpec.STANDARD
-    private var md3DynamicColor = true
     private var tabLayoutMode = TabLayoutMode.MINIMAL
+    private var fullTabCornerPercent = 28
     private var downloadNotificationsEnabled = false
     private var searchEngineKey = "bing"
     private var customSearchUrl = ""
@@ -272,11 +238,8 @@ class MainActivity : AppCompatActivity() {
         javascriptEnabled = preferences.getBoolean(KEY_JAVASCRIPT_ENABLED, true)
         desktopModeEnabled = preferences.getBoolean(KEY_DESKTOP_MODE, false)
         themeMode = ThemeMode.fromKey(preferences.getString(KEY_THEME_MODE, ThemeMode.SYSTEM.key))
-        uiDesignStyle = UiDesignStyle.fromKey(preferences.getString(KEY_UI_DESIGN_STYLE, UiDesignStyle.CURRENT.key))
-        md3PaletteStyle = Md3PaletteStyle.fromKey(preferences.getString(KEY_MD3_PALETTE_STYLE, Md3PaletteStyle.TONAL_SPOT.key))
-        md3ColorSpec = Md3ColorSpec.fromKey(preferences.getString(KEY_MD3_COLOR_SPEC, Md3ColorSpec.STANDARD.key))
-        md3DynamicColor = preferences.getBoolean(KEY_MD3_DYNAMIC_COLOR, true)
         tabLayoutMode = TabLayoutMode.fromKey(preferences.getString(KEY_TAB_LAYOUT_MODE, TabLayoutMode.MINIMAL.key))
+        fullTabCornerPercent = preferences.getInt(KEY_FULL_TAB_CORNER_PERCENT, 28).coerceIn(0, 100)
         downloadNotificationsEnabled = preferences.getBoolean(KEY_DOWNLOAD_NOTIFICATIONS, false) && hasDownloadNotificationPermission()
         searchEngineKey = preferences.getString(KEY_SEARCH_ENGINE, "bing") ?: "bing"
         customSearchUrl = preferences.getString(KEY_CUSTOM_SEARCH_URL, "") ?: ""
@@ -329,10 +292,7 @@ class MainActivity : AppCompatActivity() {
         updateBrowserBackCallback()
     }
 
-    private fun currentPalette(): Palette {
-        val dark = isDarkPalette()
-        return if (uiDesignStyle == UiDesignStyle.MD3) buildMd3Palette(dark) else buildCurrentPalette(dark)
-    }
+    private fun currentPalette(): Palette = buildCurrentPalette(isDarkPalette())
 
     private fun buildCurrentPalette(dark: Boolean): Palette = if (dark) {
         Palette(
@@ -370,76 +330,6 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
-    private fun buildMd3Palette(dark: Boolean): Palette {
-        val accent = md3Accent(dark)
-        return if (dark) {
-            Palette(
-                page = Color.rgb(20, 18, 24),
-                card = Color.rgb(33, 31, 38),
-                cardStroke = Color.rgb(73, 69, 79),
-                group = Color.rgb(45, 42, 50),
-                input = Color.rgb(48, 45, 55),
-                chip = Color.rgb(52, 49, 58),
-                selectedChip = blendColors(accent, Color.rgb(33, 31, 38), 0.62f),
-                text = Color.rgb(230, 224, 233),
-                mutedText = Color.rgb(202, 196, 208),
-                icon = Color.rgb(202, 196, 208),
-                divider = Color.rgb(147, 143, 153),
-                accent = accent,
-                homeBadge = accent,
-                actionBackground = Color.rgb(58, 54, 66)
-            )
-        } else {
-            Palette(
-                page = Color.rgb(255, 251, 254),
-                card = Color.rgb(255, 251, 254),
-                cardStroke = Color.rgb(121, 116, 126),
-                group = Color.rgb(247, 242, 250),
-                input = Color.rgb(243, 237, 247),
-                chip = Color.rgb(234, 221, 255),
-                selectedChip = blendColors(accent, Color.WHITE, 0.82f),
-                text = Color.rgb(28, 27, 31),
-                mutedText = Color.rgb(73, 69, 79),
-                icon = Color.rgb(73, 69, 79),
-                divider = Color.rgb(202, 196, 208),
-                accent = accent,
-                homeBadge = accent,
-                actionBackground = Color.rgb(234, 221, 255)
-            )
-        }
-    }
-
-    private fun md3Accent(dark: Boolean): Int {
-        val fallback = when (md3PaletteStyle) {
-            Md3PaletteStyle.TONAL_SPOT -> Color.rgb(103, 80, 164)
-            Md3PaletteStyle.VIBRANT -> Color.rgb(0, 105, 92)
-            Md3PaletteStyle.EXPRESSIVE -> Color.rgb(145, 79, 0)
-        }
-        val source = if (md3DynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val systemName = if (dark) "system_accent1_200" else "system_accent1_600"
-            runCatching {
-                val resourceId = resources.getIdentifier(systemName, "color", "android")
-                if (resourceId != 0) resources.getColor(resourceId, theme) else fallback
-            }.getOrDefault(fallback)
-        } else fallback
-        return when (md3ColorSpec) {
-            Md3ColorSpec.STANDARD -> source
-            Md3ColorSpec.FIDELITY -> blendColors(source, if (dark) Color.WHITE else Color.BLACK, 0.08f)
-            Md3ColorSpec.CONTENT -> blendColors(source, if (dark) Color.rgb(255, 216, 228) else Color.rgb(125, 82, 96), 0.22f)
-        }
-    }
-
-    private fun blendColors(foreground: Int, background: Int, foregroundWeight: Float): Int {
-        val weight = foregroundWeight.coerceIn(0f, 1f)
-        return Color.rgb(
-            (Color.red(foreground) * weight + Color.red(background) * (1f - weight)).roundToInt(),
-            (Color.green(foreground) * weight + Color.green(background) * (1f - weight)).roundToInt(),
-            (Color.blue(foreground) * weight + Color.blue(background) * (1f - weight)).roundToInt()
-        )
-    }
-
-    private fun isMd3Style(): Boolean = uiDesignStyle == UiDesignStyle.MD3
-
     private fun installSystemBarInsets() {
         ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
             systemBarInsets = insets.getInsets(WindowInsetsCompat.Type.systemBars())
@@ -450,6 +340,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun bottomTabOuterGap(): Int = dp(10)
+
+    private fun fullTabCornerRadius(): Int =
+        (dp(40) * fullTabCornerPercent.coerceIn(0, 100) / 100f).roundToInt()
 
     private fun updateBottomControlPosition() {
         if (!::bottomControlCard.isInitialized || bottomControlCard.parent == null) return
@@ -476,8 +369,8 @@ class MainActivity : AppCompatActivity() {
         window.statusBarColor = palette.page
         window.navigationBarColor = palette.page
         bottomControlCard = buildBottomControlCard()
-        // 外层仅负责底部定位，视觉胶囊在其内侧四边等距收缩，避免形成大面积背景栏。
-        val tabBarHeight = dp(if (tabLayoutMode == TabLayoutMode.FULL) 92 else 54)
+        // 极简模式为短椭圆胶囊；完整模式是装下双行控件的圆角长方形容器。
+        val tabBarHeight = dp(if (tabLayoutMode == TabLayoutMode.FULL) 96 else 54)
         root.addView(
             bottomControlCard,
             1,
@@ -498,15 +391,14 @@ class MainActivity : AppCompatActivity() {
             val palette = currentPalette()
             val visualGap = dp(6)
             frostedPill = FrameLayout(this@MainActivity).apply {
-                // 唯一有背景的视觉表面：贴合控件内容的单个椭圆磨砂胶囊。
-                val radius = dp(if (tabLayoutMode == TabLayoutMode.FULL) 40 else 21)
-                background = roundedBackground(if (isMd3Style()) palette.card else Color.TRANSPARENT, radius, palette.cardStroke)
+                // 极简模式保持椭圆磨砂胶囊；完整模式使用四角圆润的长方形容器。
+                val radius = if (tabLayoutMode == TabLayoutMode.FULL) fullTabCornerRadius() else dp(21)
+                background = roundedBackground(Color.TRANSPARENT, radius, palette.cardStroke)
                 clipToOutline = true
                 frostedWebBackdrop = ImageView(this@MainActivity).apply {
                     scaleType = ImageView.ScaleType.MATRIX
-                    visibility = if (isMd3Style()) View.GONE else View.VISIBLE
                     alpha = if (isDarkPalette()) 0.46f else 0.62f
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !isMd3Style()) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                         setRenderEffect(RenderEffect.createBlurEffect(dp(18).toFloat(), dp(18).toFloat(), Shader.TileMode.CLAMP))
                     }
                 }
@@ -516,7 +408,7 @@ class MainActivity : AppCompatActivity() {
                 ))
                 addView(View(this@MainActivity).apply {
                     // 低透明度着色层只覆盖胶囊，不能形成整块底栏。
-                    setBackgroundColor(if (isMd3Style()) Color.TRANSPARENT else if (isDarkPalette()) Color.argb(76, 18, 20, 26) else Color.argb(86, 255, 255, 255))
+                    setBackgroundColor(if (isDarkPalette()) Color.argb(76, 18, 20, 26) else Color.argb(86, 255, 255, 255))
                 }, FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.MATCH_PARENT
@@ -545,10 +437,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun frostedSurfaceColor(): Int =
-        if (isMd3Style()) currentPalette().group else if (isDarkPalette()) Color.argb(118, 35, 39, 49) else Color.argb(176, 255, 255, 255)
+        if (isDarkPalette()) Color.argb(118, 35, 39, 49) else Color.argb(176, 255, 255, 255)
 
     private fun frostedInputColor(): Int =
-        if (isMd3Style()) currentPalette().input else if (isDarkPalette()) Color.argb(152, 30, 34, 43) else Color.argb(194, 255, 255, 255)
+        if (isDarkPalette()) Color.argb(152, 30, 34, 43) else Color.argb(194, 255, 255, 255)
 
     private fun scheduleFrostedBackdropRefresh() {
         if (!::bottomControlCard.isInitialized) return
@@ -557,7 +449,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateFrostedWebBackdrop() {
-        if (isMd3Style()) return
         if (!::bottomControlCard.isInitialized || !::frostedPill.isInitialized || !::frostedWebBackdrop.isInitialized ||
             webContainer.width <= 0 || webContainer.height <= 0 || frostedPill.width <= 0 || frostedPill.height <= 0
         ) return
@@ -2237,46 +2128,25 @@ class MainActivity : AppCompatActivity() {
                     })
 
                     addView(settingsDivider())
-                    addView(settingsChoice("界面风格", UiDesignStyle.entries.map { it.label }, uiDesignStyle.label) { selected ->
-                        uiDesignStyle = UiDesignStyle.entries.first { it.label == selected }
-                        preferences.edit().putString(KEY_UI_DESIGN_STYLE, uiDesignStyle.key).apply()
-                        applyAppearance()
-                        refreshSettings()
-                    })
-                    if (isMd3Style()) {
-                        addView(settingsDivider())
-                        addView(settingsChoice("调色板样式", Md3PaletteStyle.entries.map { it.label }, md3PaletteStyle.label) { selected ->
-                            md3PaletteStyle = Md3PaletteStyle.entries.first { it.label == selected }
-                            preferences.edit().putString(KEY_MD3_PALETTE_STYLE, md3PaletteStyle.key).apply()
-                            applyAppearance()
-                            refreshSettings()
-                        })
-                        addView(settingsDivider())
-                        addView(settingsChoice("颜色规格", Md3ColorSpec.entries.map { it.label }, md3ColorSpec.label) { selected ->
-                            md3ColorSpec = Md3ColorSpec.entries.first { it.label == selected }
-                            preferences.edit().putString(KEY_MD3_COLOR_SPEC, md3ColorSpec.key).apply()
-                            applyAppearance()
-                            refreshSettings()
-                        })
-                        addView(settingsDivider())
-                        addView(settingsSwitch(
-                            "动态颜色",
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) "使用 Android 12+ 系统壁纸调色；关闭后使用所选调色板。" else "仅 Android 12+ 可用；当前设备将使用所选调色板。",
-                            md3DynamicColor
-                        ) { enabled ->
-                            md3DynamicColor = enabled
-                            preferences.edit().putBoolean(KEY_MD3_DYNAMIC_COLOR, enabled).apply()
-                            applyAppearance()
-                            refreshSettings()
-                        })
-                    }
-
-                    addView(settingsDivider())
                     addView(settingsChoice("Tab 显示模式", TabLayoutMode.entries.map { it.label }, tabLayoutMode.label) { selected ->
                         tabLayoutMode = TabLayoutMode.entries.first { it.label == selected }
                         preferences.edit().putString(KEY_TAB_LAYOUT_MODE, tabLayoutMode.key).apply()
                         applyTabLayout()
+                        refreshSettings()
                     })
+                    if (tabLayoutMode == TabLayoutMode.FULL) {
+                        addView(settingsDivider())
+                        addView(settingsPercentageSlider(
+                            "完整 Tab 圆角",
+                            "调整包住完整 Tab 的长方形四角圆润程度。",
+                            fullTabCornerPercent
+                        ) { percent ->
+                            fullTabCornerPercent = percent.coerceIn(0, 100)
+                            preferences.edit().putInt(KEY_FULL_TAB_CORNER_PERCENT, fullTabCornerPercent).apply()
+                            applyTabLayout()
+                            refreshSettings()
+                        })
+                    }
 
                     addView(settingsDivider())
                     addView(settingsSwitch("启用 JavaScript", "允许网站运行交互脚本。", javascriptEnabled) { enabled ->
@@ -2290,7 +2160,8 @@ class MainActivity : AppCompatActivity() {
                         backAnimationMode = BackAnimationMode.entries.first { it.label == selected }
                         preferences.edit().putString(KEY_BACK_ANIMATION_MODE, backAnimationMode.key).apply()
                         updateBrowserBackCallback()
-                        toast(if (backAnimationMode == BackAnimationMode.AOSP) "已启用 AOSP：根页面返回将交给系统预览" else "已切换为：${backAnimationMode.label}")
+                        // 立即重建选择控件，让点击的样式按钮直接呈现为已选中，而非只显示提示。
+                        refreshSettings()
                     })
 
                     addView(settingsDivider())
@@ -2456,6 +2327,54 @@ class MainActivity : AppCompatActivity() {
                         setOnClickListener { onSelected(option) }
                     }, LinearLayout.LayoutParams(0, dp(36), 1f).apply { marginEnd = dp(5) })
                 }
+            })
+        }
+    }
+
+    private fun settingsPercentageSlider(
+        title: String,
+        summary: String,
+        percent: Int,
+        onChanged: (Int) -> Unit
+    ): LinearLayout {
+        val palette = currentPalette()
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, dp(12), 0, dp(12))
+            val header = LinearLayout(this@MainActivity).apply {
+                gravity = Gravity.CENTER_VERTICAL
+                addView(settingsText(title, summary), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                addView(TextView(this@MainActivity).apply {
+                    text = "${percent.coerceIn(0, 100)}%"
+                    textSize = 15f
+                    setTextColor(palette.accent)
+                    gravity = Gravity.CENTER_VERTICAL
+                }.also { value ->
+                    tag = value
+                }, LinearLayout.LayoutParams(dp(52), ViewGroup.LayoutParams.WRAP_CONTENT))
+            }
+            addView(header)
+            val percentageLabel = header.tag as TextView
+            addView(SeekBar(this@MainActivity).apply {
+                max = 100
+                progress = percent.coerceIn(0, 100)
+                progressTintList = ColorStateList.valueOf(palette.accent)
+                thumbTintList = ColorStateList.valueOf(palette.accent)
+                contentDescription = "$title：${progress}%"
+                setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                    override fun onProgressChanged(seekBar: SeekBar?, value: Int, fromUser: Boolean) {
+                        percentageLabel.text = "${value.coerceIn(0, 100)}%"
+                        contentDescription = "$title：${value.coerceIn(0, 100)}%"
+                    }
+
+                    override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+
+                    override fun onStopTrackingTouch(seekBar: SeekBar?) {
+                        onChanged(seekBar?.progress?.coerceIn(0, 100) ?: percent.coerceIn(0, 100))
+                    }
+                })
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(38)).apply {
+                topMargin = dp(4)
             })
         }
     }

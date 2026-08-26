@@ -10,17 +10,17 @@
 
 ## 设计原则
 
-浮悬浏览器将网页置于视觉中心。导航、标签和工具不隐藏，但以轻量的底部控件长期保留。默认“现在的”风格使用透出网页内容的磨砂椭圆 Tab；可在设置中改用更标准、表面更实的 Google MD3 风格。系统状态栏和导航栏始终可用。
+浮悬浏览器将网页置于视觉中心。导航、标签和工具不隐藏，但以轻量的底部控件长期保留。极简模式使用透出网页内容的磨砂椭圆 Tab；完整模式使用包住双行控件的磨砂圆角长方形。系统状态栏和导航栏始终可用。
 
 | 维度 | 设计选择 |
 |---|---|
 | 产品定位 | 轻量、多标签、原生 Android WebView 浏览器 |
 | 搜索体验 | 新标签显示本地独立搜索页；提交关键词后才跳转 Bing |
-| 控制布局 | 底部等边距椭圆 Tab 容器、地址栏、椭圆形后退/前进/刷新组、新建标签与 Tab 入口；网页从容器下方透出。 |
-| Tab 模式 | 设置中固定选择“始终极简”或“始终完整” |
+| 控制布局 | 底部等边距 Tab 容器、地址栏、椭圆形后退/前进/刷新组、新建标签与 Tab 入口；网页从容器下方透出。 |
+| Tab 模式 | 设置中固定选择“始终极简”或“始终完整”；完整模式为包住双行控件的圆角长方形。 |
+| 完整 Tab 圆角 | 在完整模式下可用 0–100% 滑杆调整四个角的圆润程度；默认 28%。 |
 | 工具栏 | 从 Tab 区上方弹出的独立双列菜单，支持空白处与返回键关闭 |
-| 当前风格 | 半透明磨砂椭圆 Tab，Android 12+ 以网页局部快照实现模糊，旧系统使用透明降级层。 |
-| Google MD3 风格 | 使用标准 Material 3 色面、圆角和间距；可配置调色板样式、颜色规格与动态颜色。 |
+| 磨砂表现 | Android 12+ 以网页局部快照实现模糊，旧系统使用透明降级层。 |
 
 ## 功能
 
@@ -29,8 +29,8 @@
 | 多标签 | 创建、切换、关闭 WebView 标签；极简模式提供标签计数选择器，完整模式显示可切换的标签条。 |
 | 地址与搜索 | 支持 HTTP(S) 地址、常见域名和 Bing 搜索；首页不会自动加载搜索结果。 |
 | Tab 工具 | 添加/移除书签、下载管理、分享、复制网址、清缓存、回首页、关闭标签、刷新和设置。 |
-| 主题 | 浅色、深色、跟随系统与独立界面风格设置。MD3 选中后会显示调色板样式、颜色规格和动态颜色开关；动态颜色仅在 Android 12+ 读取系统壁纸色，低版本自动回退至所选静态调色板。[3] |
-| 返回手势 | 可选“无 / AOSP / Miuix / 缩放 / 经典”。设置、工具栏、下载确认、下载管理、应用信息、网页历史和多标签关闭均走统一返回分发；AOSP 在根页面交还系统返回桌面动画。[4] [5] |
+| 主题 | 支持浅色、深色与跟随系统；所有模式统一使用现有磨砂视觉。 |
+| 返回手势 | 可选“无 / AOSP / Miuix / 缩放 / 经典”。点击选项会立即切换并刷新当前选中状态；设置、工具栏、下载确认、下载管理、应用信息、网页历史和多标签关闭均走统一返回分发；AOSP 在根页面交还系统返回桌面动画。[3] [4] |
 | 网页下载 | 内置下载器将网页任务登记到 Android `DownloadManager`。下载管理页支持自动刷新、任务打开、底部多选与批量删除。 |
 | 下载长按操作 | 已完成任务长按可打开、分享和重命名；进行中任务可取消并删除。Android 10+ 会尝试通过内容 URI 更新实际显示名称，无法修改时保留应用内列表名称并明确提示。 |
 | 下载实时通知 | 内置下载开始后，按需启动 `dataSync` 前台服务；即使返回桌面，也会以真实文件名、下载字节、百分比和每秒字节差分速度持续更新。 |
@@ -85,10 +85,15 @@ app/build/outputs/apk/debug/app-debug.apk
 
 ## 返回手势验收
 
-1. 在 `⋮ → 设置 → 返回手势样式` 中分别选择五个选项。
+1. 在 `⋮ → 设置 → 返回手势样式` 中分别选择五个选项，确认点击后对应按钮立即高亮为选中状态。
 2. 对工具栏、设置、下载确认、下载管理和应用信息页执行返回手势或返回键，确认每次都优先关闭当前最上层页面。
 3. 对网页执行返回，确认先回 WebView 历史、再回本地首页、再关闭额外标签。
-4. 在 AOSP 模式的根首页执行返回，确认 Android 13+ 系统能够接管回到桌面的预测性预览；较低系统使用兼容返回行为。[4]
+4. 在 AOSP 模式的根首页执行返回，确认 Android 13+ 系统能够接管回到桌面的预测性预览；较低系统使用兼容返回行为。[3]
+
+## 完整 Tab 圆角验收
+
+1. 在 `⋮ → 设置 → Tab 显示模式` 选择 **始终完整**，确认底部 Tab 为四角圆润的长方形，而非极简模式的椭圆胶囊。
+2. 调整 **完整 Tab 圆角** 滑杆到 `0%`、默认 `28%` 和 `100%`，确认四个角在松开滑杆后立即按所选值更新，并在重启应用后保持。
 
 ## 项目结构
 
@@ -113,10 +118,8 @@ branding/floating_browser_icon_minimal_white.png  # 白底极简图标主资源
 
 [2] [Android Developers：通知运行时权限](https://developer.android.com/develop/ui/views/notifications/notification-permission)
 
-[3] [Android Developers：在 Views 中启用动态颜色](https://developer.android.com/develop/ui/views/theming/dynamic-colors)
+[3] [Android Developers：支持预测性返回手势](https://developer.android.com/guide/navigation/custom-back/predictive-back-gesture)
 
-[4] [Android Developers：支持预测性返回手势](https://developer.android.com/guide/navigation/custom-back/predictive-back-gesture)
+[4] [Android Developers：为 Views 提供预测性返回动画](https://developer.android.com/guide/navigation/custom-back/support-animations-views)
 
-[5] [Android Developers：为 Views 提供预测性返回动画](https://developer.android.com/guide/navigation/custom-back/support-animations-views)
-
-[6] [Android Developers：WebView](https://developer.android.com/develop/ui/views/layout/webapps/webview)
+[5] [Android Developers：WebView](https://developer.android.com/develop/ui/views/layout/webapps/webview)
