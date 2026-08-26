@@ -99,14 +99,13 @@ app/src/main/java/com/mmckb/browser/
 ├── DownloadNotificationDiagnostics.kt  # 通知 channel、权限与诊断记录
 └── DownloadStore.kt                    # DownloadManager 任务 ID 与应用内重命名显示名
 
-docs/installerx_reference_scope.md      # GPL 参考范围说明
 app/src/main/res/                       # 主题、字符串、启动图标与适配资源
 branding/floating_browser_icon_minimal_white.png  # 白底极简图标主资源
 ```
 
 ## 许可证与参考边界
 
-本仓库以 [MIT License](LICENSE) 发布。用户指定的 [InstallerX-Revived](https://github.com/wxxsfxyzm/InstallerX-Revived) 使用 GPL-3.0，因此本项目**没有复制、移植或链接**其源代码与资源；只将用户明确提出的产品方向独立实现为传统 Android View 代码。具体范围见 [`docs/installerx_reference_scope.md`](docs/installerx_reference_scope.md)。
+本仓库以 [MIT License](LICENSE) 发布。用户指定的 [InstallerX-Revived](https://github.com/wxxsfxyzm/InstallerX-Revived) 使用 GPL-3.0，因此本项目**没有复制、移植或链接**其源代码与资源；只将用户明确提出的产品方向独立实现为传统 Android View 代码。
 
 ## 参考资料
 
