@@ -19,6 +19,7 @@ import android.graphics.Color
 import android.graphics.PointF
 import android.graphics.RenderEffect
 import android.graphics.Shader
+import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
@@ -87,6 +88,16 @@ class MainActivity : AppCompatActivity() {
         private const val KEY_DOWNLOAD_NOTIFICATIONS = "download_notifications_enabled"
         private const val KEY_SEARCH_ENGINE = "search_engine"
         private const val KEY_CUSTOM_SEARCH_URL = "custom_search_url"
+        private const val KEY_CUSTOM_SEARCH_NAME = "custom_search_name"
+        private const val KEY_HOME_TITLE_MODE = "home_title_mode"
+        private const val KEY_HOME_CUSTOM_TITLE = "home_custom_title"
+        private const val KEY_HOME_TITLE_SIZE = "home_title_size"
+        private const val KEY_HOME_TITLE_BOLD = "home_title_bold"
+        private const val KEY_HOME_TITLE_ITALIC = "home_title_italic"
+        private const val KEY_HOME_TITLE_COLOR = "home_title_color"
+        private const val KEY_HOME_SEARCH_CORNER = "home_search_corner"
+        private const val KEY_HOME_SEARCH_OPACITY = "home_search_opacity"
+        private const val KEY_HOME_SEARCH_BLUR = "home_search_blur"
         private const val KEY_PREDICTIVE_BACK = "predictive_back_gesture" // 仅用于迁移旧的布尔偏好。
         private const val KEY_BACK_ANIMATION_MODE = "back_animation_mode"
         private const val GITHUB_REPO_URL = "https://github.com/MMCKB/Browser"
@@ -149,7 +160,8 @@ class MainActivity : AppCompatActivity() {
         val defaultUserAgent: String,
         var title: String = "新标签页",
         var url: String = "",
-        var isHome: Boolean = true
+        var isHome: Boolean = true,
+        var searchQuery: String? = null
     )
 
     private data class PendingDownload(
@@ -182,6 +194,16 @@ class MainActivity : AppCompatActivity() {
     private var downloadNotificationsEnabled = false
     private var searchEngineKey = "bing"
     private var customSearchUrl = ""
+    private var customSearchName = "自定义"
+    private var homeTitleMode = "engine"
+    private var homeCustomTitle = ""
+    private var homeTitleSize = 38
+    private var homeTitleBold = false
+    private var homeTitleItalic = false
+    private var homeTitleColor = Color.BLACK
+    private var homeSearchCornerPercent = 62
+    private var homeSearchOpacityPercent = 100
+    private var homeSearchBlurPercent = 0
     private var backAnimationMode = BackAnimationMode.AOSP
 
     private lateinit var preferences: SharedPreferences
@@ -211,6 +233,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var downloadConfirmDialog: MaterialCardView
     private lateinit var appInfoOverlay: FrameLayout
     private lateinit var appInfoCard: MaterialCardView
+    private lateinit var homeEditorOverlay: FrameLayout
+    private lateinit var homeEditorContent: LinearLayout
+    private val searchEngineSelectorButtons = linkedMapOf<String, MaterialButton>()
     private lateinit var browserBackCallback: OnBackPressedCallback
     private var pendingLegacyDownload: PendingDownload? = null
     private val pendingNotificationDownloadIds = linkedSetOf<Long>()
@@ -254,6 +279,18 @@ class MainActivity : AppCompatActivity() {
         downloadNotificationsEnabled = preferences.getBoolean(KEY_DOWNLOAD_NOTIFICATIONS, false) && hasDownloadNotificationPermission()
         searchEngineKey = preferences.getString(KEY_SEARCH_ENGINE, "bing") ?: "bing"
         customSearchUrl = preferences.getString(KEY_CUSTOM_SEARCH_URL, "") ?: ""
+        customSearchName = preferences.getString(KEY_CUSTOM_SEARCH_NAME, "自定义") ?: "自定义"
+        homeTitleMode = preferences.getString(KEY_HOME_TITLE_MODE, "engine") ?: "engine"
+        homeCustomTitle = preferences.getString(KEY_HOME_CUSTOM_TITLE, "") ?: ""
+        homeTitleSize = preferences.getInt(KEY_HOME_TITLE_SIZE, 38).coerceIn(16, 64)
+        homeTitleBold = preferences.getBoolean(KEY_HOME_TITLE_BOLD, false)
+        homeTitleItalic = preferences.getBoolean(KEY_HOME_TITLE_ITALIC, false)
+        homeTitleColor = runCatching {
+            Color.parseColor(preferences.getString(KEY_HOME_TITLE_COLOR, null) ?: "")
+        }.getOrElse { if (isDarkPalette()) Color.WHITE else Color.rgb(28, 30, 34) }
+        homeSearchCornerPercent = preferences.getInt(KEY_HOME_SEARCH_CORNER, 62).coerceIn(0, 100)
+        homeSearchOpacityPercent = preferences.getInt(KEY_HOME_SEARCH_OPACITY, 100).coerceIn(15, 100)
+        homeSearchBlurPercent = preferences.getInt(KEY_HOME_SEARCH_BLUR, 0).coerceIn(0, 100)
         val storedBackMode = preferences.getString(KEY_BACK_ANIMATION_MODE, null)
         backAnimationMode = if (storedBackMode == null) {
             if (preferences.getBoolean(KEY_PREDICTIVE_BACK, true)) BackAnimationMode.AOSP else BackAnimationMode.NONE
@@ -773,6 +810,8 @@ class MainActivity : AppCompatActivity() {
                     maxLines = 1
                     ellipsize = android.text.TextUtils.TruncateAt.END
                     textSize = 13f
+                    gravity = Gravity.CENTER_VERTICAL or Gravity.START
+                    includeFontPadding = false
                     setTextColor(if (selected) palette.text else palette.mutedText)
                 }, LinearLayout.LayoutParams(0, dp(42), 1f))
                 item.addView(MaterialButton(this@MainActivity).apply {
@@ -984,8 +1023,12 @@ class MainActivity : AppCompatActivity() {
             override fun onPageStarted(view: WebView, url: String, favicon: android.graphics.Bitmap?) {
                 tab.isHome = false
                 tab.url = url
+                // 搜索结果页保留原查询词；离开当前搜索引擎域名后改为显示目标网页标题。
+                if (!tab.searchQuery.isNullOrBlank() && hostLabel(url) != hostLabel(currentSearchUrlTemplate())) {
+                    tab.searchQuery = null
+                }
                 if (tab.id == activeTabId) {
-                    addressField.setText(url)
+                    updateAddressFieldForTab(tab)
                     progressBar.visibility = View.VISIBLE
                 }
             }
@@ -993,7 +1036,7 @@ class MainActivity : AppCompatActivity() {
             override fun onPageFinished(view: WebView, url: String) {
                 tab.url = url
                 if (tab.id == activeTabId) {
-                    addressField.setText(url)
+                    updateAddressFieldForTab(tab)
                     progressBar.visibility = View.GONE
                     scheduleFrostedBackdropRefresh()
                     updateBrowserBackCallback()
@@ -1011,6 +1054,7 @@ class MainActivity : AppCompatActivity() {
 
             override fun onReceivedTitle(view: WebView, title: String?) {
                 tab.title = title?.takeIf { it.isNotBlank() } ?: hostLabel(tab.url)
+                if (tab.id == activeTabId) updateAddressFieldForTab(tab)
                 refreshTabStrip()
             }
         }
@@ -1043,7 +1087,7 @@ class MainActivity : AppCompatActivity() {
                     ViewGroup.LayoutParams.MATCH_PARENT
                 )
             )
-            addressField.setText(tab.url)
+            updateAddressFieldForTab(tab)
         }
         addressField.clearFocus()
         progressBar.visibility = View.GONE
@@ -1060,92 +1104,121 @@ class MainActivity : AppCompatActivity() {
                 setPadding(dp(28), dp(28), dp(28), dp(32))
             }
             content.addView(TextView(this@MainActivity).apply {
-                text = searchEnginePresets.firstOrNull { it.key == searchEngineKey }?.name ?: "搜索"
-                textSize = 38f
-                setTextColor(palette.text)
+                text = currentHomeTitle()
+                textSize = homeTitleSize.toFloat()
+                setTextColor(homeTitleColor)
                 gravity = Gravity.CENTER
+                includeFontPadding = false
+                typeface = Typeface.create(Typeface.DEFAULT, homeTitleTypefaceStyle())
             })
-            content.addView(TextView(this@MainActivity).apply {
-                text = "浮悬浏览器独立搜索页"
-                textSize = 14f
-                setTextColor(palette.mutedText)
-                gravity = Gravity.CENTER
-                setPadding(0, dp(7), 0, dp(22))
-            })
-            val searchField = EditText(this@MainActivity).apply {
-                setSingleLine(true)
-                textSize = 16f
-                hint = "搜索或输入网址"
-                setTextColor(palette.text)
-                setHintTextColor(palette.mutedText)
-                setPadding(dp(16), 0, dp(16), 0)
-                background = roundedBackground(palette.input, dp(22), palette.cardStroke)
-                imeOptions = EditorInfo.IME_ACTION_SEARCH
-                inputType = android.text.InputType.TYPE_CLASS_TEXT
-                setOnEditorActionListener { _, actionId, event ->
-                    if (actionId == EditorInfo.IME_ACTION_SEARCH || event?.keyCode == KeyEvent.KEYCODE_ENTER) {
-                        submitHomeSearch(tab, text.toString())
-                        true
-                    } else false
-                }
+            val searchContainer = FrameLayout(this@MainActivity).apply {
+                val radius = homeSearchRadius()
+                val alpha = (homeSearchOpacityPercent * 255 / 100).coerceIn(0, 255)
+                val inputColor = Color.argb(alpha, Color.red(palette.input), Color.green(palette.input), Color.blue(palette.input))
+                addView(View(this@MainActivity).apply {
+                    background = roundedBackground(inputColor, radius, palette.cardStroke)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && homeSearchBlurPercent > 0) {
+                        val blurRadius = dp(2) + dp(18) * homeSearchBlurPercent / 100f
+                        setRenderEffect(RenderEffect.createBlurEffect(blurRadius, blurRadius, Shader.TileMode.CLAMP))
+                    }
+                }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+                addView(EditText(this@MainActivity).apply {
+                    setSingleLine(true)
+                    textSize = 16f
+                    hint = "搜索或输入网址"
+                    setTextColor(palette.text)
+                    setHintTextColor(palette.mutedText)
+                    setPadding(dp(16), 0, dp(16), 0)
+                    background = null
+                    imeOptions = EditorInfo.IME_ACTION_SEARCH
+                    inputType = android.text.InputType.TYPE_CLASS_TEXT
+                    setOnEditorActionListener { _, actionId, event ->
+                        if (actionId == EditorInfo.IME_ACTION_SEARCH || event?.keyCode == KeyEvent.KEYCODE_ENTER) {
+                            submitHomeSearch(tab, text.toString())
+                            true
+                        } else false
+                    }
+                }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
             }
-            content.addView(
-                searchField,
-                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48))
-            )
+            content.addView(searchContainer, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply {
+                topMargin = dp(16)
+            })
             content.addView(MaterialButton(this@MainActivity).apply {
                 text = "搜索"
                 textSize = 15f
                 isAllCaps = false
-                setTextColor(if (isDarkPalette()) Color.WHITE else Color.rgb(255, 255, 255))
+                setTextColor(Color.WHITE)
                 backgroundTintList = ColorStateList.valueOf(palette.homeBadge)
                 cornerRadius = dp(22)
                 insetTop = 0
                 insetBottom = 0
-                setOnClickListener { submitHomeSearch(tab, searchField.text.toString()) }
+                setOnClickListener {
+                    val field = searchContainer.getChildAt(1) as EditText
+                    submitHomeSearch(tab, field.text.toString())
+                }
             }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(44)).apply {
                 topMargin = dp(12)
             })
-            addView(
-                content,
-                FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                    Gravity.CENTER
-                )
-            )
+            addView(content, FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.CENTER
+            ))
         }
     }
 
+    private fun currentHomeTitle(): String = when {
+        homeTitleMode == "custom" && homeCustomTitle.isNotBlank() -> homeCustomTitle
+        else -> currentSearchEngineName()
+    }
+
+    private fun homeTitleTypefaceStyle(): Int = when {
+        homeTitleBold && homeTitleItalic -> Typeface.BOLD_ITALIC
+        homeTitleBold -> Typeface.BOLD
+        homeTitleItalic -> Typeface.ITALIC
+        else -> Typeface.NORMAL
+    }
+
+    private fun homeSearchRadius(): Int = dp(6) + (dp(26) * homeSearchCornerPercent / 100f).roundToInt()
+
     private fun currentSearchUrlTemplate(): String {
         val preset = searchEnginePresets.firstOrNull { it.key == searchEngineKey }
-        return if (searchEngineKey == "custom" && customSearchUrl.isNotBlank()) {
-            customSearchUrl
-        } else {
-            preset?.urlTemplate ?: BING_SEARCH
-        }
+        return if (searchEngineKey == "custom" && customSearchUrl.isNotBlank()) customSearchUrl else preset?.urlTemplate ?: BING_SEARCH
+    }
+
+    private fun currentSearchEngineName(): String = when {
+        searchEngineKey == "custom" -> customSearchName.ifBlank { "自定义" }
+        else -> searchEnginePresets.firstOrNull { it.key == searchEngineKey }?.name ?: "搜索"
+    }
+
+    private fun buildSearchUrl(query: String): String {
+        val encoded = Uri.encode(query)
+        val template = currentSearchUrlTemplate()
+        return if (template.contains("{q}")) template.replace("{q}", encoded) else template + encoded
     }
 
     private fun submitHomeSearch(tab: BrowserTab, query: String) {
         val text = query.trim()
         if (text.isBlank()) return
         if (tab.id != activeTabId) selectTab(tab.id)
-        navigateToUrl(currentSearchUrlTemplate() + Uri.encode(text))
+        navigateToUrl(buildSearchUrl(text), text)
     }
 
     private fun showHome(tab: BrowserTab) {
         tab.webView.stopLoading()
         tab.isHome = true
         tab.url = ""
+        tab.searchQuery = null
         tab.title = "新标签页"
         if (tab.id == activeTabId) renderActiveTab(tab)
         refreshTabStrip()
         updateBrowserBackCallback()
     }
 
-    private fun navigateToUrl(url: String) {
+    private fun navigateToUrl(url: String, query: String? = null) {
         val tab = activeTab ?: return
         tab.isHome = false
+        tab.searchQuery = query
         tab.url = url
         if (webContainer.childCount == 0 || webContainer.getChildAt(0) != tab.webView) {
             renderActiveTab(tab)
@@ -1160,9 +1233,18 @@ class MainActivity : AppCompatActivity() {
             input.isBlank() -> activeTab?.let(::showHome)
             input.startsWith("https://", ignoreCase = true) || input.startsWith("http://", ignoreCase = true) -> navigateToUrl(input)
             input.contains(".") && !input.contains(" ") -> navigateToUrl("https://$input")
-            else -> navigateToUrl(currentSearchUrlTemplate() + Uri.encode(input))
+            else -> navigateToUrl(buildSearchUrl(input), input)
         }
         hideKeyboard()
+    }
+
+    private fun updateAddressFieldForTab(tab: BrowserTab) {
+        val display = when {
+            tab.isHome -> ""
+            !tab.searchQuery.isNullOrBlank() -> tab.searchQuery.orEmpty()
+            else -> tab.title.takeIf { it.isNotBlank() && it != "新标签页" } ?: hostLabel(tab.url)
+        }
+        if (::addressField.isInitialized && addressField.text.toString() != display) addressField.setText(display)
     }
 
     private fun hasOpenOverlay(): Boolean =
@@ -1171,7 +1253,8 @@ class MainActivity : AppCompatActivity() {
             (::downloadsOverlay.isInitialized && downloadsOverlay.parent != null) ||
             (::settingsOverlay.isInitialized && settingsOverlay.parent != null) ||
             (::tabToolsOverlay.isInitialized && tabToolsOverlay.parent != null) ||
-            (::tabChooserOverlay.isInitialized && tabChooserOverlay.parent != null)
+            (::tabChooserOverlay.isInitialized && tabChooserOverlay.parent != null) ||
+            (::homeEditorOverlay.isInitialized && homeEditorOverlay.parent != null)
 
     private fun canHandleBrowserBack(): Boolean {
         val tab = activeTab ?: return false
@@ -1192,6 +1275,7 @@ class MainActivity : AppCompatActivity() {
         ::settingsOverlay.isInitialized && settingsOverlay.parent != null -> settingsDialog
         ::tabToolsOverlay.isInitialized && tabToolsOverlay.parent != null -> tabToolsOverlay.getChildAt(0)
         ::tabChooserOverlay.isInitialized && tabChooserOverlay.parent != null -> tabChooserCard
+        ::homeEditorOverlay.isInitialized && homeEditorOverlay.parent != null -> homeEditorOverlay
         else -> webContainer.takeIf { it.childCount > 0 }
     }
 
@@ -1262,6 +1346,7 @@ class MainActivity : AppCompatActivity() {
             ::settingsOverlay.isInitialized && settingsOverlay.parent != null -> hideSettings()
             ::tabToolsOverlay.isInitialized && tabToolsOverlay.parent != null -> hideTabTools()
             ::tabChooserOverlay.isInitialized && tabChooserOverlay.parent != null -> hideTabChooser()
+            ::homeEditorOverlay.isInitialized && homeEditorOverlay.parent != null -> hideHomeEditorPage()
             else -> handleBrowserBack()
         }
         root.post { updateBrowserBackCallback() }
@@ -2467,10 +2552,19 @@ class MainActivity : AppCompatActivity() {
                     setPadding(dp(20), dp(16), dp(20), dp(18))
                     addView(buildSettingsHeader())
 
-                    // 搜索引擎设置
-                    addView(settingsDescription("默认搜索引擎", "选择搜索或地址栏查询时使用的搜索引擎。"))
-                    addView(settingsDivider())
+                    // 搜索引擎设置：仅保留标题，预设按钮可横向滑动到右侧的自定义入口。
+                    addView(TextView(this@MainActivity).apply {
+                        text = "搜索引擎"
+                        textSize = 16f
+                        setTextColor(palette.text)
+                        setPadding(0, dp(14), 0, dp(4))
+                    })
                     addView(buildSearchEngineSelector())
+
+                    addView(settingsDivider())
+                    addView(settingsAction("首页 UI", "打开独立页面，编辑首页标题与搜索框外观。") {
+                        hideSettings { showHomeEditorPage() }
+                    })
 
                     addView(settingsDivider())
                     addView(settingsChoice("主题", ThemeMode.entries.map { it.label }, themeMode.label) { selected ->
@@ -2530,83 +2624,108 @@ class MainActivity : AppCompatActivity() {
         val palette = currentPalette()
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(0, dp(12), 0, dp(12))
-            addView(LinearLayout(this@MainActivity).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                setPadding(0, dp(8), 0, dp(0))
-                // 预设搜索引擎选择按钮组
-                searchEnginePresets.filter { it.key != "custom" }.forEach { engine ->
-                    addView(MaterialButton(this@MainActivity).apply {
-                        text = engine.name
-                        textSize = 12f
-                        isAllCaps = false
-                        minWidth = 0
-                        minHeight = 0
-                        insetTop = 0
-                        insetBottom = 0
-                        cornerRadius = dp(15)
-                        setPadding(dp(8), 0, dp(8), 0)
-                        val active = searchEngineKey == engine.key
-                        // 材质：搜索引擎按钮 — 实体白底座，选中时蓝色高亮
-                        backgroundTintList = ColorStateList.valueOf(if (active) palette.selectedChip else palette.group)
-                        setTextColor(if (active) palette.text else palette.mutedText)
-                        setOnClickListener {
-                            searchEngineKey = engine.key
-                            preferences.edit().putString(KEY_SEARCH_ENGINE, engine.key).apply()
-                            // 刷新设置页
-                            refreshSettings()
-                        }
-                    }, LinearLayout.LayoutParams(0, dp(36), 1f).apply { marginEnd = dp(4) })
-                }
-            })
-            // 自定义搜索引擎输入
-            if (searchEngineKey == "custom") {
+            setPadding(0, dp(6), 0, dp(12))
+            val engineRow = HorizontalScrollView(this@MainActivity).apply {
+                isHorizontalScrollBarEnabled = false
+                overScrollMode = View.OVER_SCROLL_NEVER
                 addView(LinearLayout(this@MainActivity).apply {
                     orientation = LinearLayout.HORIZONTAL
                     gravity = Gravity.CENTER_VERTICAL
-                    setPadding(0, dp(8), 0, 0)
-                    val customInput = EditText(this@MainActivity).apply {
-                        setSingleLine(true)
-                        textSize = 14f
-                        setTextColor(palette.text)
-                        setHintTextColor(palette.mutedText)
-                        hint = "https://example.com/search?q="
-                        setText(customSearchUrl)
-                        setPadding(dp(10), 0, dp(10), 0)
-                        background = roundedBackground(palette.input, dp(12), palette.cardStroke)
-                    }
-                    addView(customInput, LinearLayout.LayoutParams(0, dp(38), 1f).apply { marginEnd = dp(6) })
-                    addView(MaterialButton(this@MainActivity).apply {
-                        text = "保存"
-                        textSize = 13f
-                        isAllCaps = false
-                        minWidth = 0
-                        minHeight = 0
-                        insetTop = 0
-                        insetBottom = 0
-                        cornerRadius = dp(12)
-                        setTextColor(Color.WHITE)
-                        backgroundTintList = ColorStateList.valueOf(palette.accent)
-                        setOnClickListener {
-                            val url = customInput.text.toString().trim()
-                            if (url.isNotEmpty() && url.contains("{q}")) {
-                                customSearchUrl = url
-                                preferences.edit().putString(KEY_CUSTOM_SEARCH_URL, url).apply()
-                                toast("已保存自定义搜索引擎")
-                            } else if (url.isNotEmpty() && url.contains("q=")) {
-                                // 兼容不含 {q} 的 URL
-                                customSearchUrl = url
-                                preferences.edit().putString(KEY_CUSTOM_SEARCH_URL, url).apply()
-                                toast("已保存自定义搜索引擎")
-                            } else {
-                                toast("请输入有效的搜索 URL，包含 ?q= 或 {q}")
+                    searchEngineSelectorButtons.clear()
+                    (searchEnginePresets.filter { it.key != "custom" } + SearchEngine("custom", "自定义", "")).forEach { engine ->
+                        val engineButton = MaterialButton(this@MainActivity).apply {
+                            text = engine.name
+                            textSize = 13f
+                            isAllCaps = false
+                            minWidth = 0
+                            minHeight = 0
+                            insetTop = 0
+                            insetBottom = 0
+                            cornerRadius = dp(15)
+                            setPadding(dp(12), 0, dp(12), 0)
+                            val active = searchEngineKey == engine.key
+                            backgroundTintList = ColorStateList.valueOf(if (active) palette.selectedChip else palette.group)
+                            setTextColor(if (active) palette.text else palette.mutedText)
+                            setOnClickListener {
+                                if (engine.key == "custom") showCustomSearchEngineDialog() else setSearchEngine(engine.key)
                             }
                         }
-                    }, LinearLayout.LayoutParams(dp(60), dp(38)))
+                        searchEngineSelectorButtons[engine.key] = engineButton
+                        addView(engineButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(38)).apply { marginEnd = dp(6) })
+                    }
                 })
             }
+            addView(engineRow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(44)))
+            addView(TextView(this@MainActivity).apply {
+                text = "向右滑动可进入自定义"
+                textSize = 12f
+                setTextColor(palette.mutedText)
+                setPadding(dp(4), dp(2), 0, 0)
+            })
         }
+    }
+
+    private fun setSearchEngine(key: String) {
+        searchEngineKey = key
+        preferences.edit().putString(KEY_SEARCH_ENGINE, key).apply()
+        // 原地更新按钮状态，不重建设置 overlay，避免切换后设置页被销毁并重新进入。
+        val palette = currentPalette()
+        searchEngineSelectorButtons.forEach { (buttonKey, button) ->
+            val active = buttonKey == key
+            button.backgroundTintList = ColorStateList.valueOf(if (active) palette.selectedChip else palette.group)
+            button.setTextColor(if (active) palette.text else palette.mutedText)
+        }
+        activeTab?.takeIf { it.isHome }?.let(::renderActiveTab)
+    }
+
+    private fun showCustomSearchEngineDialog() {
+        val palette = currentPalette()
+        val form = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(8), dp(20), 0)
+        }
+        val nameInput = EditText(this).apply {
+            hint = "名称，例如：站内搜索"
+            setSingleLine(true)
+            setText(customSearchName)
+            setTextColor(palette.text)
+            setHintTextColor(palette.mutedText)
+            background = roundedBackground(palette.input, dp(14), palette.cardStroke)
+            setPadding(dp(12), 0, dp(12), 0)
+        }
+        val urlInput = EditText(this).apply {
+            hint = "搜索引擎地址，使用 {q} 或以 q= 结尾"
+            setSingleLine(true)
+            setText(customSearchUrl)
+            setTextColor(palette.text)
+            setHintTextColor(palette.mutedText)
+            background = roundedBackground(palette.input, dp(14), palette.cardStroke)
+            setPadding(dp(12), 0, dp(12), 0)
+        }
+        form.addView(nameInput, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46)).apply { bottomMargin = dp(10) })
+        form.addView(urlInput, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46)))
+        AlertDialog.Builder(this)
+            .setTitle("自定义搜索引擎")
+            .setView(form)
+            .setNegativeButton("取消", null)
+            .setPositiveButton("保存") { _, _ ->
+                val name = nameInput.text.toString().trim()
+                val url = urlInput.text.toString().trim()
+                if (url.isBlank() || (!url.contains("{q}") && !url.contains("q="))) {
+                    toast("请输入含 {q} 或 q= 的搜索地址")
+                    return@setPositiveButton
+                }
+                customSearchName = name.ifBlank { "自定义" }
+                customSearchUrl = url
+                preferences.edit()
+                    .putString(KEY_CUSTOM_SEARCH_NAME, customSearchName)
+                    .putString(KEY_CUSTOM_SEARCH_URL, customSearchUrl)
+                    .putString(KEY_SEARCH_ENGINE, "custom")
+                    .apply()
+                setSearchEngine("custom")
+                toast("已切换到 $customSearchName")
+            }
+            .show()
     }
 
     private fun refreshSettings() {
@@ -2791,6 +2910,197 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun showHomeEditorPage() {
+        if (::homeEditorOverlay.isInitialized && homeEditorOverlay.parent != null) return
+        val palette = currentPalette()
+        homeEditorOverlay = FrameLayout(this).apply {
+            setBackgroundColor(palette.page)
+            alpha = 0f
+            isClickable = true
+        }
+        homeEditorOverlay.addView(ScrollView(this).apply {
+            isFillViewport = true
+            addView(LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(22), dp(18), dp(22), dp(36))
+                homeEditorContent = this
+                rebuildHomeEditorContent()
+            })
+        }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        root.addView(homeEditorOverlay, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        homeEditorOverlay.bringToFront()
+        updateBrowserBackCallback()
+        homeEditorOverlay.animate().alpha(1f).setDuration(180).start()
+    }
+
+    private fun rebuildHomeEditorContent() {
+        if (!::homeEditorContent.isInitialized) return
+        val palette = currentPalette()
+        homeEditorContent.removeAllViews()
+        homeEditorContent.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(TextView(this@MainActivity).apply {
+                text = "首页 UI"
+                textSize = 22f
+                setTextColor(palette.text)
+            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addView(MaterialButton(this@MainActivity).apply {
+                text = "‹"
+                textSize = 28f
+                minWidth = 0
+                minHeight = 0
+                insetTop = 0
+                insetBottom = 0
+                cornerRadius = dp(16)
+                backgroundTintList = ColorStateList.valueOf(palette.group)
+                setTextColor(palette.icon)
+                contentDescription = "返回设置"
+                setOnClickListener { hideHomeEditorPage { showSettings() } }
+            }, LinearLayout.LayoutParams(dp(44), dp(42)))
+        })
+        homeEditorContent.addView(settingsDescription("首页显示", "选择搜索引擎名称或自定义文本。"))
+        homeEditorContent.addView(settingsChoice("标题内容", listOf("搜索引擎", "自定义"), if (homeTitleMode == "custom") "自定义" else "搜索引擎") { selected ->
+            homeTitleMode = if (selected == "自定义") "custom" else "engine"
+            preferences.edit().putString(KEY_HOME_TITLE_MODE, homeTitleMode).apply()
+            refreshHomePreview()
+            rebuildHomeEditorContent()
+        })
+        if (homeTitleMode == "custom") {
+            homeEditorContent.addView(settingsAction("自定义标题", homeCustomTitle.ifBlank { "未设置" }) { showHomeTitleInputDialog() })
+        }
+        homeEditorContent.addView(settingsDivider())
+        homeEditorContent.addView(settingsNumberSlider("字体大小", "调整首页标题大小。", homeTitleSize, 16, 64, "sp") { value ->
+            homeTitleSize = value
+            preferences.edit().putInt(KEY_HOME_TITLE_SIZE, value).apply()
+            refreshHomePreview()
+        })
+        homeEditorContent.addView(settingsSwitch("加粗", "应用粗体字重。", homeTitleBold) { value ->
+            homeTitleBold = value
+            preferences.edit().putBoolean(KEY_HOME_TITLE_BOLD, value).apply()
+            refreshHomePreview()
+        })
+        homeEditorContent.addView(settingsSwitch("斜体", "应用斜体字形。", homeTitleItalic) { value ->
+            homeTitleItalic = value
+            preferences.edit().putBoolean(KEY_HOME_TITLE_ITALIC, value).apply()
+            refreshHomePreview()
+        })
+        homeEditorContent.addView(settingsAction("标题颜色", String.format("#%06X", 0xFFFFFF and homeTitleColor)) { showHomeTitleColorPalette() })
+        homeEditorContent.addView(settingsDivider())
+        homeEditorContent.addView(settingsPercentageSlider("搜索框圆角", "调整搜索框圆角。", homeSearchCornerPercent) { value ->
+            homeSearchCornerPercent = value
+            preferences.edit().putInt(KEY_HOME_SEARCH_CORNER, value).apply()
+            refreshHomePreview()
+        })
+        homeEditorContent.addView(settingsPercentageSlider("搜索框不透明度", "调整搜索框背景可见度。", homeSearchOpacityPercent) { value ->
+            homeSearchOpacityPercent = value.coerceIn(15, 100)
+            preferences.edit().putInt(KEY_HOME_SEARCH_OPACITY, homeSearchOpacityPercent).apply()
+            refreshHomePreview()
+        })
+        homeEditorContent.addView(settingsPercentageSlider("搜索框模糊", "调整搜索框底层模糊强度。", homeSearchBlurPercent) { value ->
+            homeSearchBlurPercent = value
+            preferences.edit().putInt(KEY_HOME_SEARCH_BLUR, value).apply()
+            refreshHomePreview()
+        })
+    }
+
+    private fun settingsNumberSlider(title: String, summary: String, value: Int, min: Int, max: Int, suffix: String, onChanged: (Int) -> Unit): LinearLayout {
+        val palette = currentPalette()
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, dp(12), 0, dp(12))
+            val header = LinearLayout(this@MainActivity).apply {
+                gravity = Gravity.CENTER_VERTICAL
+                addView(settingsText(title, summary), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                addView(TextView(this@MainActivity).apply {
+                    text = "$value $suffix"
+                    textSize = 15f
+                    setTextColor(palette.accent)
+                }.also { tag = it }, LinearLayout.LayoutParams(dp(60), ViewGroup.LayoutParams.WRAP_CONTENT))
+            }
+            addView(header)
+            val label = header.tag as TextView
+            addView(SeekBar(this@MainActivity).apply {
+                this.max = max - min
+                progress = (value - min).coerceIn(0, max - min)
+                progressTintList = ColorStateList.valueOf(palette.accent)
+                thumbTintList = ColorStateList.valueOf(palette.accent)
+                setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                    override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) { label.text = "${min + progress} $suffix" }
+                    override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+                    override fun onStopTrackingTouch(seekBar: SeekBar?) { onChanged(min + (seekBar?.progress ?: 0)) }
+                })
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(38)))
+        }
+    }
+
+    private fun showHomeTitleInputDialog() {
+        val input = EditText(this).apply {
+            setSingleLine(true)
+            setText(homeCustomTitle)
+            hint = "输入首页标题"
+            setPadding(dp(18), 0, dp(18), 0)
+        }
+        AlertDialog.Builder(this).setTitle("自定义首页标题").setView(input)
+            .setNegativeButton("取消", null)
+            .setPositiveButton("保存") { _, _ ->
+                homeCustomTitle = input.text.toString().trim()
+                preferences.edit().putString(KEY_HOME_CUSTOM_TITLE, homeCustomTitle).apply()
+                refreshHomePreview()
+                rebuildHomeEditorContent()
+            }.show()
+    }
+
+    private fun showHomeTitleColorPalette() {
+        val palette = currentPalette()
+        val colors = listOf(Color.rgb(28, 30, 34), Color.WHITE, Color.rgb(33, 110, 184), Color.rgb(112, 60, 160), Color.rgb(180, 72, 74), Color.rgb(30, 126, 92))
+        val grid = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(8), dp(18), dp(8))
+        }
+        lateinit var dialog: AlertDialog
+        colors.chunked(3).forEach { rowColors ->
+            grid.addView(LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                rowColors.forEach { color ->
+                    addView(MaterialButton(this@MainActivity).apply {
+                        text = ""
+                        cornerRadius = dp(18)
+                        backgroundTintList = ColorStateList.valueOf(color)
+                        strokeColor = ColorStateList.valueOf(palette.cardStroke)
+                        strokeWidth = dp(1)
+                        contentDescription = String.format("#%06X", 0xFFFFFF and color)
+                        setOnClickListener {
+                            homeTitleColor = color
+                            preferences.edit().putString(KEY_HOME_TITLE_COLOR, String.format("#%06X", 0xFFFFFF and color)).apply()
+                            refreshHomePreview()
+                            dialog.dismiss()
+                            rebuildHomeEditorContent()
+                        }
+                    }, LinearLayout.LayoutParams(0, dp(46), 1f).apply { setMargins(dp(4), dp(4), dp(4), dp(4)) })
+                }
+            })
+        }
+        dialog = AlertDialog.Builder(this).setTitle("标题颜色").setView(grid).setNegativeButton("取消", null).create()
+        dialog.show()
+    }
+
+    private fun refreshHomePreview() {
+        activeTab?.takeIf { it.isHome }?.let(::renderActiveTab)
+    }
+
+    private fun hideHomeEditorPage(after: () -> Unit = {}) {
+        if (!::homeEditorOverlay.isInitialized || homeEditorOverlay.parent == null) {
+            after()
+            return
+        }
+        homeEditorOverlay.animate().alpha(0f).setDuration(160).withEndAction {
+            if (homeEditorOverlay.parent != null) root.removeView(homeEditorOverlay)
+            updateBrowserBackCallback()
+            after()
+        }.start()
+    }
+
     private fun settingsDivider(): View {
         // 材质：柔和的纯灰分隔线（低视觉权重）
         return View(this).apply {
@@ -2829,8 +3139,11 @@ class MainActivity : AppCompatActivity() {
         scheduleFrostedBackdropRefresh()
     }
 
-    private fun hideSettings() {
-        if (!::settingsOverlay.isInitialized || settingsOverlay.parent == null || isSettingsClosing) return
+    private fun hideSettings(after: () -> Unit = {}) {
+        if (!::settingsOverlay.isInitialized || settingsOverlay.parent == null || isSettingsClosing) {
+            after()
+            return
+        }
         isSettingsClosing = true
         settingsOverlay.animate().alpha(0f).setDuration(160).start()
         settingsDialog.animate().alpha(0f).scaleX(0.14f).scaleY(0.14f)
@@ -2840,6 +3153,7 @@ class MainActivity : AppCompatActivity() {
                 if (settingsOverlay.parent != null) root.removeView(settingsOverlay)
                 isSettingsClosing = false
                 updateBrowserBackCallback()
+                after()
             }.start()
     }
 
