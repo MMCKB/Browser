@@ -258,6 +258,7 @@ class MainActivity : AppCompatActivity() {
     private var tabChooserStartTranslationY = 0f
     private var systemBarInsets: Insets = Insets.NONE
     private var imeBottomInset = 0
+    private var imeVisible = false
     private var downloadSelectionMode = false
     private val selectedDownloadIds = linkedSetOf<Long>()
     private val downloadSpeedSamples = mutableMapOf<Long, DownloadSpeedSample>()
@@ -391,10 +392,16 @@ class MainActivity : AppCompatActivity() {
 
     private fun installSystemBarInsets() {
         ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
+            val wasImeVisible = imeVisible
+            imeVisible = insets.isVisible(WindowInsetsCompat.Type.ime())
             systemBarInsets = insets.getInsets(WindowInsetsCompat.Type.systemBars())
             imeBottomInset = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
             updateBottomControlPosition()
             updateSystemBarsScrim()
+            // 用户按返回键收起输入法时，Android 通常保留 EditText 焦点；在此主动结束编辑状态。
+            if (wasImeVisible && !imeVisible) {
+                root.post { endAddressEditingAfterImeDismissed() }
+            }
             insets
         }
         ViewCompat.requestApplyInsets(root)
@@ -1281,6 +1288,12 @@ class MainActivity : AppCompatActivity() {
         val editing = addressEditingText(tab)
         if (addressField.text.toString() != editing) addressField.setText(editing)
         addressField.setSelection(addressField.text.length)
+    }
+
+    private fun endAddressEditingAfterImeDismissed() {
+        if (!::addressField.isInitialized || !addressField.hasFocus() || imeVisible) return
+        addressField.clearFocus()
+        activeTab?.let(::updateAddressFieldForTab)
     }
 
     private fun hasOpenOverlay(): Boolean =
