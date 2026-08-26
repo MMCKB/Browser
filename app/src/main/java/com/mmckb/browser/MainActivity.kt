@@ -257,6 +257,7 @@ class MainActivity : AppCompatActivity() {
     private var tabChooserStartTranslationX = 0f
     private var tabChooserStartTranslationY = 0f
     private var systemBarInsets: Insets = Insets.NONE
+    private var imeBottomInset = 0
     private var downloadSelectionMode = false
     private val selectedDownloadIds = linkedSetOf<Long>()
     private val downloadSpeedSamples = mutableMapOf<Long, DownloadSpeedSample>()
@@ -391,6 +392,7 @@ class MainActivity : AppCompatActivity() {
     private fun installSystemBarInsets() {
         ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
             systemBarInsets = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            imeBottomInset = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
             updateBottomControlPosition()
             updateSystemBarsScrim()
             insets
@@ -474,7 +476,7 @@ class MainActivity : AppCompatActivity() {
                 gap + systemBarInsets.left,
                 gap,
                 gap + systemBarInsets.right,
-                gap + systemBarInsets.bottom
+                gap + maxOf(systemBarInsets.bottom, imeBottomInset)
             )
             params.gravity = Gravity.BOTTOM
             bottomControlCard.layoutParams = params
@@ -616,6 +618,20 @@ class MainActivity : AppCompatActivity() {
                         loadAddressInput()
                         true
                     } else false
+                }
+                setOnFocusChangeListener { _, hasFocus ->
+                    if (hasFocus) {
+                        activeTab?.let(::showAddressEditingText)
+                        post {
+                            val manager = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+                            manager.showSoftInput(this, InputMethodManager.SHOW_IMPLICIT)
+                        }
+                    } else {
+                        activeTab?.let(::updateAddressFieldForTab)
+                    }
+                }
+                setOnClickListener {
+                    if (hasFocus()) activeTab?.let(::showAddressEditingText)
                 }
             }
             addView(addressField, LinearLayout.LayoutParams(0, dp(34), 1f).apply {
@@ -1246,12 +1262,25 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateAddressFieldForTab(tab: BrowserTab) {
-        val display = when {
+        if (!::addressField.isInitialized) return
+        val display = if (addressField.hasFocus()) addressEditingText(tab) else when {
             tab.isHome -> ""
             !tab.searchQuery.isNullOrBlank() -> tab.searchQuery.orEmpty()
             else -> tab.title.takeIf { it.isNotBlank() && it != "新标签页" } ?: hostLabel(tab.url)
         }
-        if (::addressField.isInitialized && addressField.text.toString() != display) addressField.setText(display)
+        if (addressField.text.toString() != display) addressField.setText(display)
+    }
+
+    private fun addressEditingText(tab: BrowserTab): String = when {
+        tab.isHome -> ""
+        !tab.searchQuery.isNullOrBlank() -> tab.searchQuery.orEmpty()
+        else -> tab.url
+    }
+
+    private fun showAddressEditingText(tab: BrowserTab) {
+        val editing = addressEditingText(tab)
+        if (addressField.text.toString() != editing) addressField.setText(editing)
+        addressField.setSelection(addressField.text.length)
     }
 
     private fun hasOpenOverlay(): Boolean =
@@ -1484,28 +1513,28 @@ class MainActivity : AppCompatActivity() {
                 orientation = LinearLayout.VERTICAL
                 setPadding(dp(8), dp(3), dp(8), dp(8))
 
-                // 功能按钮：2行4列
+                // 功能按钮：统一为三行三列，避免新增电脑模式后出现孤立按钮。
                 addView(buildTabToolRow(
                     tabToolTile("☆", "添加书签") { toggleBookmark(); hideTabTools() },
                     tabToolTile("⇩", "下载") { hideTabTools { showDownloadsOverlay() } },
-                    tabToolTile("↗", "分享") { shareCurrentUrl(); hideTabTools() },
-                    tabToolTile("⧉", "复制") { copyCurrentUrl(); hideTabTools() }
-                ), LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    dp(48)
-                ))
+                    tabToolTile("↗", "分享") { shareCurrentUrl(); hideTabTools() }
+                ), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)))
                 addView(buildTabToolRow(
+                    tabToolTile("⧉", "复制") { copyCurrentUrl(); hideTabTools() },
                     tabToolTile("⌫", "清缓存") { clearCurrentPageCache(); hideTabTools() },
-                    tabToolTile("⌂", "主页") { activeTab?.let(::showHome); hideTabTools() },
+                    tabToolTile("⌂", "主页") { activeTab?.let(::showHome); hideTabTools() }
+                ), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply { topMargin = dp(7) })
+                addView(buildTabToolRow(
                     tabToolTile("↻", "刷新") { activeTab?.webView?.reload(); hideTabTools() },
+                    tabToolTile(if (desktopModeEnabled) "▣" else "▤", if (desktopModeEnabled) "移动模式" else "电脑模式") {
+                        toggleDesktopMode()
+                        hideTabTools()
+                    },
                     tabToolTile("⚙", "设置") { settingsButton ->
                         val point = captureAnchor(settingsButton)
                         hideTabTools { showSettings(point) }
                     }
-                ), LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    dp(48)
-                ).apply { topMargin = dp(9) })
+                ), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply { topMargin = dp(7) })
 
             })
         }
@@ -2481,6 +2510,14 @@ class MainActivity : AppCompatActivity() {
         toast("网址已复制")
     }
 
+    private fun toggleDesktopMode() {
+        desktopModeEnabled = !desktopModeEnabled
+        preferences.edit().putBoolean(KEY_DESKTOP_MODE, desktopModeEnabled).apply()
+        tabs.forEach(::applyWebSettings)
+        activeTab?.takeUnless { it.isHome }?.webView?.reload()
+        toast(if (desktopModeEnabled) "已切换到电脑模式" else "已切换到移动模式")
+    }
+
     private fun clearCurrentPageCache() {
         activeTab?.webView?.clearCache(true)
         toast("当前页面缓存已清除")
@@ -2569,7 +2606,7 @@ class MainActivity : AppCompatActivity() {
                     addView(buildSearchEngineSelector())
 
                     addView(settingsDivider())
-                    addView(settingsAction("首页 UI", "打开独立页面，编辑首页标题与搜索框外观。") {
+                    addView(settingsAction("首页 UI 编辑", "打开独立页面，编辑首页标题与搜索框外观。") {
                         hideSettings { showHomeEditorPage() }
                     })
 

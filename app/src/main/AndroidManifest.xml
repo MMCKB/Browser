@@ -27,6 +27,7 @@
             android:exported="true"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|uiMode"
             android:enableOnBackInvokedCallback="true"
+            android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.FloatingBrowser"
             tools:targetApi="33">
             <intent-filter>
