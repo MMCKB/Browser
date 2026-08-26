@@ -54,6 +54,10 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.PopupMenu
 import androidx.appcompat.widget.SwitchCompat
 import androidx.core.content.ContextCompat
+import androidx.core.graphics.Insets
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
 import kotlin.math.roundToInt
@@ -170,12 +174,14 @@ class MainActivity : AppCompatActivity() {
     private lateinit var settingsDialog: MaterialCardView
     private lateinit var tabToolsOverlay: FrameLayout
     private lateinit var downloadsOverlay: FrameLayout
+    private lateinit var browserBackCallback: OnBackPressedCallback
     private var pendingLegacyDownload: PendingDownload? = null
     private val pendingNotificationDownloadIds = linkedSetOf<Long>()
     private var isSettingsClosing = false
     private var settingsStartTranslationX = 0f
     private var settingsStartTranslationY = 0f
     private var settingsAnchorPoint: PointF? = null
+    private var systemBarInsets: Insets = Insets.NONE
 
     private val activeTab: BrowserTab?
         get() = tabs.firstOrNull { it.id == activeTabId }
@@ -195,6 +201,9 @@ class MainActivity : AppCompatActivity() {
         // 用户偏好存储在设置中，应用启动时自动生效
 
         root = FrameLayout(this)
+        // 保持系统状态栏/导航栏可见；仅让网页背景延伸到系统栏下方。
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        installSystemBarInsets()
         webContainer = FrameLayout(this)
         root.addView(
             webContainer,
@@ -210,7 +219,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(root)
         createTab()
 
-        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+        browserBackCallback = object : OnBackPressedCallback(false) {
             override fun handleOnBackPressed() {
                 when {
                     ::downloadsOverlay.isInitialized && downloadsOverlay.parent != null -> hideDownloadsOverlay()
@@ -219,7 +228,9 @@ class MainActivity : AppCompatActivity() {
                     else -> handleBrowserBack()
                 }
             }
-        })
+        }
+        onBackPressedDispatcher.addCallback(this, browserBackCallback)
+        updateBrowserBackCallback()
     }
 
     private fun currentPalette(): Palette {
@@ -273,6 +284,33 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun installSystemBarInsets() {
+        ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
+            systemBarInsets = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            updateBottomControlPosition()
+            insets
+        }
+        ViewCompat.requestApplyInsets(root)
+    }
+
+    private fun bottomTabOuterGap(): Int = dp(10)
+
+    private fun updateBottomControlPosition() {
+        if (!::bottomControlCard.isInitialized || bottomControlCard.parent == null) return
+        val gap = bottomTabOuterGap()
+        (bottomControlCard.layoutParams as? FrameLayout.LayoutParams)?.let { params ->
+            // 基础留白四边均为 10dp；底部额外叠加系统导航栏 inset，避免遮挡系统任务栏。
+            params.setMargins(
+                gap + systemBarInsets.left,
+                gap,
+                gap + systemBarInsets.right,
+                gap + systemBarInsets.bottom
+            )
+            params.gravity = Gravity.BOTTOM
+            bottomControlCard.layoutParams = params
+        }
+    }
+
     private fun attachBottomControls() {
         if (::bottomControlCard.isInitialized) {
             root.removeView(bottomControlCard)
@@ -282,8 +320,7 @@ class MainActivity : AppCompatActivity() {
         window.statusBarColor = palette.page
         window.navigationBarColor = palette.page
         bottomControlCard = buildBottomControlCard()
-        // 背景 ImageView 使用 MATCH_PARENT；父容器必须有确定高度，不能使用 WRAP_CONTENT。
-        // 否则 FrameLayout 会把模糊层按整屏测量，导致整个 Tab 区错误地停在顶部。
+        // 磨砂背景使用 MATCH_PARENT；父容器使用确定高度，防止全屏测量。
         val tabBarHeight = dp(if (tabLayoutMode == TabLayoutMode.FULL) 82 else 44)
         root.addView(
             bottomControlCard,
@@ -292,16 +329,20 @@ class MainActivity : AppCompatActivity() {
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 tabBarHeight,
                 Gravity.BOTTOM
-            ).apply {
-                setMargins(dp(12), 0, dp(12), dp(10))
-            }
+            )
         )
+        updateBottomControlPosition()
         bottomControlCard.post { scheduleFrostedBackdropRefresh() }
     }
 
     private fun buildBottomControlCard(): FrameLayout {
         // 网页本身位于该容器下方；背景快照仅用于 Android 31+ 的真实毛玻璃效果。
         return FrameLayout(this).apply {
+            val palette = currentPalette()
+            // 整个 Tab 区是一枚椭圆胶囊；内部与边缘均保留 5dp 一致空隙。
+            val radius = dp(if (tabLayoutMode == TabLayoutMode.FULL) 41 else 22)
+            background = roundedBackground(Color.TRANSPARENT, radius, palette.cardStroke)
+            clipToOutline = true
             frostedWebBackdrop = ImageView(this@MainActivity).apply {
                 scaleType = ImageView.ScaleType.MATRIX
                 alpha = if (isDarkPalette()) 0.46f else 0.62f
@@ -531,6 +572,7 @@ class MainActivity : AppCompatActivity() {
         configureWebView(tab)
         tabs += tab
         selectTab(tab.id)
+        updateBrowserBackCallback()
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -579,6 +621,7 @@ class MainActivity : AppCompatActivity() {
                     addressField.setText(url)
                     progressBar.visibility = View.GONE
                     scheduleFrostedBackdropRefresh()
+                    updateBrowserBackCallback()
                 }
                 refreshTabStrip()
             }
@@ -609,6 +652,7 @@ class MainActivity : AppCompatActivity() {
         activeTabId = tabId
         renderActiveTab(tab)
         refreshTabStrip()
+        updateBrowserBackCallback()
     }
 
     private fun renderActiveTab(tab: BrowserTab) {
@@ -721,6 +765,7 @@ class MainActivity : AppCompatActivity() {
         tab.title = "新标签页"
         if (tab.id == activeTabId) renderActiveTab(tab)
         refreshTabStrip()
+        updateBrowserBackCallback()
     }
 
     private fun navigateToUrl(url: String) {
@@ -731,6 +776,7 @@ class MainActivity : AppCompatActivity() {
             renderActiveTab(tab)
         }
         tab.webView.loadUrl(url)
+        updateBrowserBackCallback()
     }
 
     private fun loadAddressInput() {
@@ -744,6 +790,23 @@ class MainActivity : AppCompatActivity() {
         hideKeyboard()
     }
 
+    private fun hasOpenOverlay(): Boolean =
+        (::downloadsOverlay.isInitialized && downloadsOverlay.parent != null) ||
+            (::settingsOverlay.isInitialized && settingsOverlay.parent != null) ||
+            (::tabToolsOverlay.isInitialized && tabToolsOverlay.parent != null)
+
+    private fun canHandleBrowserBack(): Boolean {
+        val tab = activeTab ?: return false
+        return !tab.isHome || tabs.size > 1
+    }
+
+    private fun updateBrowserBackCallback() {
+        if (!::browserBackCallback.isInitialized) return
+        // 根页面无可返回状态时，启用预测性返回会把手势交给系统，从而呈现返回桌面预览。
+        // 关闭开关时仍拦截根返回，保留传统立即退出行为；覆盖层和网页历史始终优先处理。
+        browserBackCallback.isEnabled = hasOpenOverlay() || canHandleBrowserBack() || !predictiveBackEnabled
+    }
+
     private fun handleBrowserBack() {
         val tab = activeTab ?: run {
             finish()
@@ -755,6 +818,7 @@ class MainActivity : AppCompatActivity() {
             tabs.size > 1 -> closeTab(tab.id)
             else -> finish()
         }
+        root.post { updateBrowserBackCallback() }
     }
 
     private fun goBack() {
@@ -780,6 +844,7 @@ class MainActivity : AppCompatActivity() {
         } else {
             refreshTabStrip()
         }
+        updateBrowserBackCallback()
     }
 
     private fun refreshTabStrip() {
@@ -905,6 +970,7 @@ class MainActivity : AppCompatActivity() {
             tabToolsOverlay,
             FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
         )
+        updateBrowserBackCallback()
         // 流畅交互：遮罩淡入
         tabToolsOverlay.animate().alpha(1f).setDuration(200).setInterpolator(android.view.animation.DecelerateInterpolator()).start()
         toolbar.post {
@@ -1027,6 +1093,7 @@ class MainActivity : AppCompatActivity() {
         // 延迟移除视图（等待动画基本完成）
         toolbar.postDelayed({
             if (tabToolsOverlay.parent != null) root.removeView(tabToolsOverlay)
+            updateBrowserBackCallback()
             after()
         }, 200L)
     }
@@ -1230,6 +1297,8 @@ class MainActivity : AppCompatActivity() {
             val manager = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
             val downloadId = manager.enqueue(request)
             DownloadStore.add(this, downloadId)
+            // 浏览器内置下载器以真实 DownloadManager 任务为数据源，离开应用后仍通过前台服务更新。
+            startProgressNotificationForDownload(downloadId)
             toast("已开始下载：$fileName")
         } catch (error: Exception) {
             toast("无法开始下载：${error.message ?: "下载服务不可用"}")
@@ -1260,7 +1329,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun startProgressNotificationForDownload(downloadId: Long) {
         if (!downloadNotificationsEnabled) {
-            DownloadNotificationDiagnostics.record(this, "下载已开始，但设置中的下载实时通知开关未开启")
+            pendingNotificationDownloadIds.add(downloadId)
+            DownloadNotificationDiagnostics.record(this, "内置下载已开始，正在请求启用下载实时通知")
+            requestDownloadNotificationPermission()
             return
         }
         if (hasDownloadNotificationPermission()) {
@@ -1287,8 +1358,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun requestDownloadNotificationPermission() {
         if (hasDownloadNotificationPermission()) {
-            downloadNotificationsEnabled = true
-            preferences.edit().putBoolean(KEY_DOWNLOAD_NOTIFICATIONS, true).apply()
+            setDownloadNotificationsEnabled(true)
+            val ids = pendingNotificationDownloadIds.toList()
+            pendingNotificationDownloadIds.clear()
+            ids.forEach(::startProgressNotificationForDownload)
             return
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
@@ -1491,6 +1564,7 @@ class MainActivity : AppCompatActivity() {
             ViewGroup.LayoutParams.MATCH_PARENT
         ))
         downloadsOverlay.bringToFront()
+        updateBrowserBackCallback()
         refreshDownloads()
         downloadsOverlay.animate().alpha(1f).setDuration(160).start()
         sheet.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(210)
@@ -1505,6 +1579,7 @@ class MainActivity : AppCompatActivity() {
         val sheet = downloadsOverlay.getChildAt(0)
         sheet.animate().alpha(0f).scaleX(0.9f).scaleY(0.9f).setDuration(150).withEndAction {
             if (downloadsOverlay.parent != null) root.removeView(downloadsOverlay)
+            updateBrowserBackCallback()
             after()
         }.start()
     }
@@ -1645,6 +1720,7 @@ class MainActivity : AppCompatActivity() {
             ViewGroup.LayoutParams.MATCH_PARENT
         ))
         settingsOverlay.bringToFront()
+        updateBrowserBackCallback()
         settingsOverlay.animate().alpha(1f).setDuration(180).start()
         animateSettingsFromAnchor()
     }
@@ -1719,9 +1795,8 @@ class MainActivity : AppCompatActivity() {
                     addView(settingsSwitch("预测性返回手势", "启用后可预览返回手势的目标页面（Android 13+）。", predictiveBackEnabled) { enabled ->
                         predictiveBackEnabled = enabled
                         preferences.edit().putBoolean(KEY_PREDICTIVE_BACK, enabled).apply()
-                        // 注意：enableOnBackInvokedCallback 是 @SystemAPI，编译期不可直接调用
-                        // 实际行为由 AndroidManifest 中的配置决定，此处仅保存用户偏好
-                        toast("已${if (enabled) "启用" else "关闭"}预测性返回手势")
+                        updateBrowserBackCallback()
+                        toast(if (enabled) "已启用：根页面返回手势将交给系统预览" else "已关闭：使用传统立即返回行为")
                     })
 
                     addView(settingsDivider())
@@ -2000,6 +2075,7 @@ class MainActivity : AppCompatActivity() {
             .withEndAction {
                 if (settingsOverlay.parent != null) root.removeView(settingsOverlay)
                 isSettingsClosing = false
+                updateBrowserBackCallback()
             }.start()
     }
 

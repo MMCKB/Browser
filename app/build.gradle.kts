@@ -1,7 +1,18 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
 }
+
+val signingProperties = Properties().apply {
+    val source = rootProject.file("signing.properties")
+    if (source.exists()) source.inputStream().use(::load)
+}
+
+fun signingValue(environmentName: String, propertyName: String): String =
+    System.getenv(environmentName)?.takeIf { it.isNotBlank() }
+        ?: signingProperties.getProperty(propertyName, "")
 
 android {
     namespace = "com.mmckb.browser"
@@ -13,25 +24,26 @@ android {
         targetSdk = 36
         versionCode = 15
         versionName = "2.20.0-settings-refactor"
-        
+
         ndk {
             abiFilters += listOf("x86_64", "x86", "arm64-v8a", "armeabi-v7a")
         }
     }
 
     signingConfigs {
-        create("release") {
-            storeFile = file("release.keystore")
-            storePassword = System.getenv("KEYSTORE_PASSWORD") ?: ""
-            keyAlias = System.getenv("KEY_ALIAS") ?: ""
-            keyPassword = System.getenv("KEY_PASSWORD") ?: ""
+        create("mmckb") {
+            storeFile = file(signingValue("KEYSTORE_FILE", "storeFile").ifBlank { "release.keystore" })
+            storePassword = signingValue("KEYSTORE_PASSWORD", "storePassword")
+            keyAlias = signingValue("KEY_ALIAS", "keyAlias")
+            keyPassword = signingValue("KEY_PASSWORD", "keyPassword")
         }
     }
 
     buildTypes {
         debug {
             isMinifyEnabled = false
-            // 使用默认 debug keystore，避免本地构建依赖未提交的发布密钥。
+            // 调试包也使用 MMCKB 证书，确保每次编译的升级签名一致。
+            signingConfig = signingConfigs.getByName("mmckb")
         }
         release {
             isMinifyEnabled = false
@@ -39,7 +51,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = signingConfigs.getByName("release")
+            signingConfig = signingConfigs.getByName("mmckb")
         }
     }
 

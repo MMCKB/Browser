@@ -14,3 +14,4 @@
 # Keystore files - injected via GitHub Secrets
 *.keystore
 *.jks
+signing.properties
