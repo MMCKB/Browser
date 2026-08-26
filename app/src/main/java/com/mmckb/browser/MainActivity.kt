@@ -5,6 +5,7 @@ import android.annotation.SuppressLint
 import android.app.DownloadManager
 import android.content.ActivityNotFoundException
 import android.content.ClipData
+import android.content.ContentValues
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
@@ -25,6 +26,8 @@ import android.os.Bundle
 import android.os.Environment
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
+import android.provider.MediaStore
 import android.provider.Settings
 import android.view.Gravity
 import android.view.KeyEvent
@@ -40,6 +43,7 @@ import android.webkit.WebStorage
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.webkit.URLUtil
+import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
@@ -49,7 +53,9 @@ import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.BackEventCompat
 import androidx.activity.OnBackPressedCallback
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.PopupMenu
 import androidx.appcompat.widget.SwitchCompat
@@ -72,14 +78,19 @@ class MainActivity : AppCompatActivity() {
         private const val KEY_DESKTOP_MODE = "desktop_mode"
         private const val KEY_BOOKMARKS = "bookmarks"
         private const val KEY_THEME_MODE = "theme_mode"
+        private const val KEY_UI_DESIGN_STYLE = "ui_design_style"
+        private const val KEY_MD3_PALETTE_STYLE = "md3_palette_style"
+        private const val KEY_MD3_COLOR_SPEC = "md3_color_spec"
+        private const val KEY_MD3_DYNAMIC_COLOR = "md3_dynamic_color"
         private const val KEY_TAB_LAYOUT_MODE = "tab_layout_mode"
         private const val LEGACY_STORAGE_PERMISSION_REQUEST_CODE = 4012
         private const val NOTIFICATION_PERMISSION_REQUEST_CODE = 4013
         private const val KEY_DOWNLOAD_NOTIFICATIONS = "download_notifications_enabled"
         private const val KEY_SEARCH_ENGINE = "search_engine"
         private const val KEY_CUSTOM_SEARCH_URL = "custom_search_url"
-        private const val KEY_PREDICTIVE_BACK = "predictive_back_gesture"
-        private const val GITHUB_REPO_URL = "https://github.com/yourusername/FloatingBrowser"
+        private const val KEY_PREDICTIVE_BACK = "predictive_back_gesture" // 仅用于迁移旧的布尔偏好。
+        private const val KEY_BACK_ANIMATION_MODE = "back_animation_mode"
+        private const val GITHUB_REPO_URL = "https://github.com/MMCKB/Browser"
         private const val DESKTOP_USER_AGENT =
             "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 " +
                 "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
@@ -92,6 +103,47 @@ class MainActivity : AppCompatActivity() {
 
         companion object {
             fun fromKey(key: String?) = entries.firstOrNull { it.key == key } ?: SYSTEM
+        }
+    }
+
+    private enum class UiDesignStyle(val key: String, val label: String) {
+        CURRENT("current", "现在的"),
+        MD3("md3", "Google MD3 风格");
+
+        companion object {
+            fun fromKey(key: String?) = entries.firstOrNull { it.key == key } ?: CURRENT
+        }
+    }
+
+    private enum class Md3PaletteStyle(val key: String, val label: String) {
+        TONAL_SPOT("tonal_spot", "Tonal Spot"),
+        VIBRANT("vibrant", "Vibrant"),
+        EXPRESSIVE("expressive", "Expressive");
+
+        companion object {
+            fun fromKey(key: String?) = entries.firstOrNull { it.key == key } ?: TONAL_SPOT
+        }
+    }
+
+    private enum class Md3ColorSpec(val key: String, val label: String) {
+        STANDARD("standard", "标准"),
+        FIDELITY("fidelity", "保真"),
+        CONTENT("content", "内容");
+
+        companion object {
+            fun fromKey(key: String?) = entries.firstOrNull { it.key == key } ?: STANDARD
+        }
+    }
+
+    private enum class BackAnimationMode(val key: String, val label: String) {
+        NONE("none", "无"),
+        AOSP("aosp", "AOSP"),
+        MIUIX("miuix", "Miuix"),
+        SCALE("scale", "缩放"),
+        CLASSIC("classic", "经典");
+
+        companion object {
+            fun fromKey(key: String?) = entries.firstOrNull { it.key == key } ?: AOSP
         }
     }
 
@@ -137,6 +189,8 @@ class MainActivity : AppCompatActivity() {
         val mimeType: String?
     )
 
+    private data class DownloadSpeedSample(val bytes: Long, val atMillis: Long)
+
     data class SearchEngine(val key: String, val name: String, val urlTemplate: String)
 
     val searchEnginePresets = listOf(
@@ -153,11 +207,15 @@ class MainActivity : AppCompatActivity() {
     private var javascriptEnabled = true
     private var desktopModeEnabled = false
     private var themeMode = ThemeMode.SYSTEM
+    private var uiDesignStyle = UiDesignStyle.CURRENT
+    private var md3PaletteStyle = Md3PaletteStyle.TONAL_SPOT
+    private var md3ColorSpec = Md3ColorSpec.STANDARD
+    private var md3DynamicColor = true
     private var tabLayoutMode = TabLayoutMode.MINIMAL
     private var downloadNotificationsEnabled = false
     private var searchEngineKey = "bing"
     private var customSearchUrl = ""
-    private var predictiveBackEnabled = true
+    private var backAnimationMode = BackAnimationMode.AOSP
 
     private lateinit var preferences: SharedPreferences
     private lateinit var root: FrameLayout
@@ -175,6 +233,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var settingsDialog: MaterialCardView
     private lateinit var tabToolsOverlay: FrameLayout
     private lateinit var downloadsOverlay: FrameLayout
+    private lateinit var downloadConfirmOverlay: FrameLayout
+    private lateinit var downloadConfirmDialog: MaterialCardView
+    private lateinit var appInfoOverlay: FrameLayout
+    private lateinit var appInfoCard: MaterialCardView
     private lateinit var browserBackCallback: OnBackPressedCallback
     private var pendingLegacyDownload: PendingDownload? = null
     private val pendingNotificationDownloadIds = linkedSetOf<Long>()
@@ -186,6 +248,20 @@ class MainActivity : AppCompatActivity() {
     private var tabToolsStartTranslationX = 0f
     private var tabToolsStartTranslationY = 0f
     private var systemBarInsets: Insets = Insets.NONE
+    private var downloadSelectionMode = false
+    private val selectedDownloadIds = linkedSetOf<Long>()
+    private val downloadSpeedSamples = mutableMapOf<Long, DownloadSpeedSample>()
+    private var downloadsRefreshAction: (() -> Unit)? = null
+    private val downloadsRefreshHandler = Handler(Looper.getMainLooper())
+    private val downloadsRefreshRunnable = object : Runnable {
+        override fun run() {
+            downloadsRefreshAction?.invoke()
+            if (::downloadsOverlay.isInitialized && downloadsOverlay.parent != null) {
+                downloadsRefreshHandler.postDelayed(this, 1_000L)
+            }
+        }
+    }
+    private var backGestureTarget: View? = null
 
     private val activeTab: BrowserTab?
         get() = tabs.firstOrNull { it.id == activeTabId }
@@ -196,13 +272,22 @@ class MainActivity : AppCompatActivity() {
         javascriptEnabled = preferences.getBoolean(KEY_JAVASCRIPT_ENABLED, true)
         desktopModeEnabled = preferences.getBoolean(KEY_DESKTOP_MODE, false)
         themeMode = ThemeMode.fromKey(preferences.getString(KEY_THEME_MODE, ThemeMode.SYSTEM.key))
+        uiDesignStyle = UiDesignStyle.fromKey(preferences.getString(KEY_UI_DESIGN_STYLE, UiDesignStyle.CURRENT.key))
+        md3PaletteStyle = Md3PaletteStyle.fromKey(preferences.getString(KEY_MD3_PALETTE_STYLE, Md3PaletteStyle.TONAL_SPOT.key))
+        md3ColorSpec = Md3ColorSpec.fromKey(preferences.getString(KEY_MD3_COLOR_SPEC, Md3ColorSpec.STANDARD.key))
+        md3DynamicColor = preferences.getBoolean(KEY_MD3_DYNAMIC_COLOR, true)
         tabLayoutMode = TabLayoutMode.fromKey(preferences.getString(KEY_TAB_LAYOUT_MODE, TabLayoutMode.MINIMAL.key))
         downloadNotificationsEnabled = preferences.getBoolean(KEY_DOWNLOAD_NOTIFICATIONS, false) && hasDownloadNotificationPermission()
         searchEngineKey = preferences.getString(KEY_SEARCH_ENGINE, "bing") ?: "bing"
         customSearchUrl = preferences.getString(KEY_CUSTOM_SEARCH_URL, "") ?: ""
-        predictiveBackEnabled = preferences.getBoolean(KEY_PREDICTIVE_BACK, true)
-        // 预测性返回手势由 AndroidManifest 中的 android:enableOnBackInvokedCallback="true" 控制
-        // 用户偏好存储在设置中，应用启动时自动生效
+        val storedBackMode = preferences.getString(KEY_BACK_ANIMATION_MODE, null)
+        backAnimationMode = if (storedBackMode == null) {
+            if (preferences.getBoolean(KEY_PREDICTIVE_BACK, true)) BackAnimationMode.AOSP else BackAnimationMode.NONE
+        } else {
+            BackAnimationMode.fromKey(storedBackMode)
+        }
+        preferences.edit().putString(KEY_BACK_ANIMATION_MODE, backAnimationMode.key).apply()
+        // AndroidManifest 启用系统预测性返回；只有 AOSP 模式的根页面会主动交还系统动画。
 
         root = FrameLayout(this)
         // 保持系统状态栏/导航栏可见；仅让网页背景延伸到系统栏下方。
@@ -224,13 +309,20 @@ class MainActivity : AppCompatActivity() {
         createTab()
 
         browserBackCallback = object : OnBackPressedCallback(false) {
+            override fun handleOnBackStarted(backEvent: BackEventCompat) {
+                beginBackGestureAnimation()
+            }
+
+            override fun handleOnBackProgressed(backEvent: BackEventCompat) {
+                applyBackGestureProgress(backEvent.progress, backEvent.swipeEdge == BackEventCompat.EDGE_RIGHT)
+            }
+
+            override fun handleOnBackCancelled() {
+                cancelBackGestureAnimation()
+            }
+
             override fun handleOnBackPressed() {
-                when {
-                    ::downloadsOverlay.isInitialized && downloadsOverlay.parent != null -> hideDownloadsOverlay()
-                    ::settingsOverlay.isInitialized && settingsOverlay.parent != null -> hideSettings()
-                    ::tabToolsOverlay.isInitialized && tabToolsOverlay.parent != null -> hideTabTools()
-                    else -> handleBrowserBack()
-                }
+                commitBackGestureAnimation()
             }
         }
         onBackPressedDispatcher.addCallback(this, browserBackCallback)
@@ -238,55 +330,115 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun currentPalette(): Palette {
-        val dark = when (themeMode) {
-            ThemeMode.DARK -> true
-            ThemeMode.LIGHT -> false
-            ThemeMode.SYSTEM -> {
-                resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
-            }
-        }
+        val dark = isDarkPalette()
+        return if (uiDesignStyle == UiDesignStyle.MD3) buildMd3Palette(dark) else buildCurrentPalette(dark)
+    }
+
+    private fun buildCurrentPalette(dark: Boolean): Palette = if (dark) {
+        Palette(
+            page = Color.rgb(18, 18, 20),
+            card = Color.argb(218, 36, 36, 39),
+            cardStroke = Color.argb(100, 112, 112, 120),
+            group = Color.rgb(54, 54, 59),
+            input = Color.rgb(42, 42, 47),
+            chip = Color.rgb(66, 66, 72),
+            selectedChip = Color.rgb(78, 92, 108),
+            text = Color.rgb(244, 244, 246),
+            mutedText = Color.rgb(192, 192, 198),
+            icon = Color.rgb(234, 234, 240),
+            divider = Color.argb(100, 190, 190, 198),
+            accent = Color.rgb(112, 199, 255),
+            homeBadge = Color.rgb(51, 123, 177),
+            actionBackground = Color.rgb(58, 58, 64)
+        )
+    } else {
+        Palette(
+            page = Color.rgb(247, 247, 250),
+            card = Color.argb(235, 252, 252, 253),
+            cardStroke = Color.argb(70, 200, 200, 204),
+            group = Color.WHITE,
+            input = Color.rgb(242, 242, 245),
+            chip = Color.argb(235, 240, 240, 243),
+            selectedChip = Color.argb(230, 220, 228, 238),
+            text = Color.rgb(28, 28, 30),
+            mutedText = Color.rgb(110, 110, 114),
+            icon = Color.rgb(44, 44, 46),
+            divider = Color.argb(60, 180, 180, 184),
+            accent = Color.rgb(22, 119, 181),
+            homeBadge = Color.rgb(33, 126, 190),
+            actionBackground = Color.rgb(232, 232, 236)
+        )
+    }
+
+    private fun buildMd3Palette(dark: Boolean): Palette {
+        val accent = md3Accent(dark)
         return if (dark) {
             Palette(
-                // 深色模式：纯深灰黑毛玻璃，蓝调仅保留在 accent
-                page = Color.rgb(18, 18, 20),
-                card = Color.argb(210, 36, 36, 39),
-                cardStroke = Color.argb(90, 80, 80, 84),
-                group = Color.WHITE,
-                input = Color.rgb(248, 248, 250),
-                chip = Color.argb(235, 240, 240, 243),
-                selectedChip = Color.argb(230, 220, 228, 238),
-                text = Color.rgb(28, 28, 30),
-                mutedText = Color.rgb(110, 110, 114),
-                icon = Color.rgb(44, 44, 46),
-                divider = Color.argb(60, 180, 180, 184),
-                accent = Color.rgb(112, 199, 255),
-                homeBadge = Color.rgb(51, 123, 177),
-                actionBackground = Color.rgb(50, 50, 54)
+                page = Color.rgb(20, 18, 24),
+                card = Color.rgb(33, 31, 38),
+                cardStroke = Color.rgb(73, 69, 79),
+                group = Color.rgb(45, 42, 50),
+                input = Color.rgb(48, 45, 55),
+                chip = Color.rgb(52, 49, 58),
+                selectedChip = blendColors(accent, Color.rgb(33, 31, 38), 0.62f),
+                text = Color.rgb(230, 224, 233),
+                mutedText = Color.rgb(202, 196, 208),
+                icon = Color.rgb(202, 196, 208),
+                divider = Color.rgb(147, 143, 153),
+                accent = accent,
+                homeBadge = accent,
+                actionBackground = Color.rgb(58, 54, 66)
             )
         } else {
             Palette(
-                // 浅色模式：纯白毛玻璃，无蓝调混入
-                // card 作为厚毛玻璃底座 — 高透明度纯白
-                page = Color.rgb(247, 247, 250),
-                card = Color.argb(235, 252, 252, 253),
-                cardStroke = Color.argb(70, 200, 200, 204),
-                // group 交互底座 — 实体白，不透光，不叠在透光层上
-                group = Color.WHITE,
-                // input 输入区 — 浅灰白实体，与底座区分
-                input = Color.rgb(242, 242, 245),
-                chip = Color.argb(235, 240, 240, 243),
-                selectedChip = Color.argb(230, 220, 228, 238),
-                // 文本：近黑纯灰，保证毛玻璃上可读性
-                text = Color.rgb(28, 28, 30),
-                mutedText = Color.rgb(110, 110, 114),
-                icon = Color.rgb(44, 44, 46),
-                divider = Color.argb(60, 180, 180, 184),
-                accent = Color.rgb(22, 119, 181),
-                homeBadge = Color.rgb(33, 126, 190),
-                actionBackground = Color.rgb(232, 232, 236)
+                page = Color.rgb(255, 251, 254),
+                card = Color.rgb(255, 251, 254),
+                cardStroke = Color.rgb(121, 116, 126),
+                group = Color.rgb(247, 242, 250),
+                input = Color.rgb(243, 237, 247),
+                chip = Color.rgb(234, 221, 255),
+                selectedChip = blendColors(accent, Color.WHITE, 0.82f),
+                text = Color.rgb(28, 27, 31),
+                mutedText = Color.rgb(73, 69, 79),
+                icon = Color.rgb(73, 69, 79),
+                divider = Color.rgb(202, 196, 208),
+                accent = accent,
+                homeBadge = accent,
+                actionBackground = Color.rgb(234, 221, 255)
             )
         }
     }
+
+    private fun md3Accent(dark: Boolean): Int {
+        val fallback = when (md3PaletteStyle) {
+            Md3PaletteStyle.TONAL_SPOT -> Color.rgb(103, 80, 164)
+            Md3PaletteStyle.VIBRANT -> Color.rgb(0, 105, 92)
+            Md3PaletteStyle.EXPRESSIVE -> Color.rgb(145, 79, 0)
+        }
+        val source = if (md3DynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val systemName = if (dark) "system_accent1_200" else "system_accent1_600"
+            runCatching {
+                val resourceId = resources.getIdentifier(systemName, "color", "android")
+                if (resourceId != 0) resources.getColor(resourceId, theme) else fallback
+            }.getOrDefault(fallback)
+        } else fallback
+        return when (md3ColorSpec) {
+            Md3ColorSpec.STANDARD -> source
+            Md3ColorSpec.FIDELITY -> blendColors(source, if (dark) Color.WHITE else Color.BLACK, 0.08f)
+            Md3ColorSpec.CONTENT -> blendColors(source, if (dark) Color.rgb(255, 216, 228) else Color.rgb(125, 82, 96), 0.22f)
+        }
+    }
+
+    private fun blendColors(foreground: Int, background: Int, foregroundWeight: Float): Int {
+        val weight = foregroundWeight.coerceIn(0f, 1f)
+        return Color.rgb(
+            (Color.red(foreground) * weight + Color.red(background) * (1f - weight)).roundToInt(),
+            (Color.green(foreground) * weight + Color.green(background) * (1f - weight)).roundToInt(),
+            (Color.blue(foreground) * weight + Color.blue(background) * (1f - weight)).roundToInt()
+        )
+    }
+
+    private fun isMd3Style(): Boolean = uiDesignStyle == UiDesignStyle.MD3
 
     private fun installSystemBarInsets() {
         ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
@@ -348,12 +500,13 @@ class MainActivity : AppCompatActivity() {
             frostedPill = FrameLayout(this@MainActivity).apply {
                 // 唯一有背景的视觉表面：贴合控件内容的单个椭圆磨砂胶囊。
                 val radius = dp(if (tabLayoutMode == TabLayoutMode.FULL) 40 else 21)
-                background = roundedBackground(Color.TRANSPARENT, radius, palette.cardStroke)
+                background = roundedBackground(if (isMd3Style()) palette.card else Color.TRANSPARENT, radius, palette.cardStroke)
                 clipToOutline = true
                 frostedWebBackdrop = ImageView(this@MainActivity).apply {
                     scaleType = ImageView.ScaleType.MATRIX
+                    visibility = if (isMd3Style()) View.GONE else View.VISIBLE
                     alpha = if (isDarkPalette()) 0.46f else 0.62f
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !isMd3Style()) {
                         setRenderEffect(RenderEffect.createBlurEffect(dp(18).toFloat(), dp(18).toFloat(), Shader.TileMode.CLAMP))
                     }
                 }
@@ -363,7 +516,7 @@ class MainActivity : AppCompatActivity() {
                 ))
                 addView(View(this@MainActivity).apply {
                     // 低透明度着色层只覆盖胶囊，不能形成整块底栏。
-                    setBackgroundColor(if (isDarkPalette()) Color.argb(76, 18, 20, 26) else Color.argb(86, 255, 255, 255))
+                    setBackgroundColor(if (isMd3Style()) Color.TRANSPARENT else if (isDarkPalette()) Color.argb(76, 18, 20, 26) else Color.argb(86, 255, 255, 255))
                 }, FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.MATCH_PARENT
@@ -392,10 +545,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun frostedSurfaceColor(): Int =
-        if (isDarkPalette()) Color.argb(118, 35, 39, 49) else Color.argb(176, 255, 255, 255)
+        if (isMd3Style()) currentPalette().group else if (isDarkPalette()) Color.argb(118, 35, 39, 49) else Color.argb(176, 255, 255, 255)
 
     private fun frostedInputColor(): Int =
-        if (isDarkPalette()) Color.argb(152, 30, 34, 43) else Color.argb(194, 255, 255, 255)
+        if (isMd3Style()) currentPalette().input else if (isDarkPalette()) Color.argb(152, 30, 34, 43) else Color.argb(194, 255, 255, 255)
 
     private fun scheduleFrostedBackdropRefresh() {
         if (!::bottomControlCard.isInitialized) return
@@ -404,6 +557,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateFrostedWebBackdrop() {
+        if (isMd3Style()) return
         if (!::bottomControlCard.isInitialized || !::frostedPill.isInitialized || !::frostedWebBackdrop.isInitialized ||
             webContainer.width <= 0 || webContainer.height <= 0 || frostedPill.width <= 0 || frostedPill.height <= 0
         ) return
@@ -807,7 +961,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun hasOpenOverlay(): Boolean =
-        (::downloadsOverlay.isInitialized && downloadsOverlay.parent != null) ||
+        (::appInfoOverlay.isInitialized && appInfoOverlay.parent != null) ||
+            (::downloadConfirmOverlay.isInitialized && downloadConfirmOverlay.parent != null) ||
+            (::downloadsOverlay.isInitialized && downloadsOverlay.parent != null) ||
             (::settingsOverlay.isInitialized && settingsOverlay.parent != null) ||
             (::tabToolsOverlay.isInitialized && tabToolsOverlay.parent != null)
 
@@ -818,9 +974,89 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateBrowserBackCallback() {
         if (!::browserBackCallback.isInitialized) return
-        // 根页面无可返回状态时，启用预测性返回会把手势交给系统，从而呈现返回桌面预览。
-        // 关闭开关时仍拦截根返回，保留传统立即退出行为；覆盖层和网页历史始终优先处理。
-        browserBackCallback.isEnabled = hasOpenOverlay() || canHandleBrowserBack() || !predictiveBackEnabled
+        val hasInternalDestination = hasOpenOverlay() || canHandleBrowserBack()
+        // AOSP 模式在根页禁用回调并把手势交给系统，从而显示回到桌面的系统预览。
+        browserBackCallback.isEnabled = hasInternalDestination || backAnimationMode != BackAnimationMode.AOSP
+    }
+
+    private fun resolveBackVisualTarget(): View? = when {
+        ::appInfoOverlay.isInitialized && appInfoOverlay.parent != null -> appInfoCard
+        ::downloadConfirmOverlay.isInitialized && downloadConfirmOverlay.parent != null -> downloadConfirmDialog
+        ::downloadsOverlay.isInitialized && downloadsOverlay.parent != null -> downloadsOverlay.getChildAt(0)
+        ::settingsOverlay.isInitialized && settingsOverlay.parent != null -> settingsDialog
+        ::tabToolsOverlay.isInitialized && tabToolsOverlay.parent != null -> tabToolsOverlay.getChildAt(0)
+        else -> webContainer.takeIf { it.childCount > 0 }
+    }
+
+    private fun beginBackGestureAnimation() {
+        backGestureTarget = resolveBackVisualTarget()
+    }
+
+    private fun applyBackGestureProgress(progress: Float, fromRight: Boolean) {
+        val target = backGestureTarget ?: return
+        val fraction = progress.coerceIn(0f, 1f)
+        when (backAnimationMode) {
+            BackAnimationMode.MIUIX -> {
+                val direction = if (fromRight) -1f else 1f
+                target.translationX = direction * target.width * 0.12f * fraction
+                target.translationY = dp(8).toFloat() * fraction
+                target.scaleX = 1f - 0.035f * fraction
+                target.scaleY = 1f - 0.035f * fraction
+                target.alpha = 1f - 0.10f * fraction
+            }
+            BackAnimationMode.SCALE -> {
+                target.scaleX = 1f - 0.09f * fraction
+                target.scaleY = 1f - 0.09f * fraction
+                target.alpha = 1f - 0.16f * fraction
+            }
+            BackAnimationMode.CLASSIC -> {
+                target.translationX = target.width * 0.04f * fraction
+            }
+            BackAnimationMode.NONE,
+            BackAnimationMode.AOSP -> Unit
+        }
+    }
+
+    private fun cancelBackGestureAnimation() {
+        backGestureTarget?.animate()?.translationX(0f)?.translationY(0f)?.scaleX(1f)?.scaleY(1f)?.alpha(1f)
+            ?.setDuration(170)?.setInterpolator(android.view.animation.DecelerateInterpolator())?.start()
+        backGestureTarget = null
+    }
+
+    private fun commitBackGestureAnimation() {
+        val target = backGestureTarget
+        backGestureTarget = null
+        when (backAnimationMode) {
+            BackAnimationMode.MIUIX,
+            BackAnimationMode.SCALE -> target?.animate()
+                ?.translationX(0f)?.translationY(0f)?.scaleX(1f)?.scaleY(1f)?.alpha(1f)
+                ?.setDuration(60)?.withEndAction { performBackForCurrentSurface() }?.start()
+                ?: performBackForCurrentSurface()
+            BackAnimationMode.CLASSIC -> target?.animate()
+                ?.alpha(0.70f)?.translationX(target.width * 0.10f)?.setDuration(110)
+                ?.withEndAction {
+                    target.alpha = 1f
+                    target.translationX = 0f
+                    target.translationY = 0f
+                    target.scaleX = 1f
+                    target.scaleY = 1f
+                    performBackForCurrentSurface()
+                }?.start() ?: performBackForCurrentSurface()
+            BackAnimationMode.NONE,
+            BackAnimationMode.AOSP -> performBackForCurrentSurface()
+        }
+    }
+
+    private fun performBackForCurrentSurface() {
+        when {
+            ::appInfoOverlay.isInitialized && appInfoOverlay.parent != null -> hideAppInfoPage()
+            ::downloadConfirmOverlay.isInitialized && downloadConfirmOverlay.parent != null -> hideDownloadConfirmDialog()
+            ::downloadsOverlay.isInitialized && downloadsOverlay.parent != null -> hideDownloadsOverlay()
+            ::settingsOverlay.isInitialized && settingsOverlay.parent != null -> hideSettings()
+            ::tabToolsOverlay.isInitialized && tabToolsOverlay.parent != null -> hideTabTools()
+            else -> handleBrowserBack()
+        }
+        root.post { updateBrowserBackCallback() }
     }
 
     private fun handleBrowserBack() {
@@ -1154,7 +1390,8 @@ class MainActivity : AppCompatActivity() {
         val fileName = URLUtil.guessFileName(url, contentDisposition, mimeType)
         val palette = currentPalette()
 
-        val downloadOverlay = FrameLayout(this).apply {
+        if (::downloadConfirmOverlay.isInitialized && downloadConfirmOverlay.parent != null) return
+        downloadConfirmOverlay = FrameLayout(this).apply {
             // 材质：模态遮罩 — 更暗的 scrim（150/255 不透明黑）聚焦前景
             setBackgroundColor(Color.argb(150, 0, 0, 0))
             alpha = 0f
@@ -1162,7 +1399,7 @@ class MainActivity : AppCompatActivity() {
             isClickable = true
         }
 
-        val dialog = MaterialCardView(this).apply {
+        downloadConfirmDialog = MaterialCardView(this).apply {
             radius = dp(24).toFloat()
             cardElevation = dp(16).toFloat()
             // 材质：模态弹窗 — 纯白厚毛玻璃
@@ -1220,9 +1457,7 @@ class MainActivity : AppCompatActivity() {
                     backgroundTintList = ColorStateList.valueOf(palette.accent)
                     setPadding(dp(16), 0, dp(16), 0)
                     setOnClickListener {
-                        downloadOverlay.animate().alpha(0f).setDuration(150).withEndAction {
-                            if (downloadOverlay.parent != null) root.removeView(downloadOverlay)
-                        }.start()
+                        hideDownloadConfirmDialog()
                         enqueueWebDownloadWithManager(url, userAgent, contentDisposition, mimeType)
                     }
                 }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply { bottomMargin = dp(8) })
@@ -1240,9 +1475,7 @@ class MainActivity : AppCompatActivity() {
                     backgroundTintList = ColorStateList.valueOf(palette.group)
                     setPadding(dp(16), 0, dp(16), 0)
                     setOnClickListener {
-                        downloadOverlay.animate().alpha(0f).setDuration(150).withEndAction {
-                            if (downloadOverlay.parent != null) root.removeView(downloadOverlay)
-                        }.start()
+                        hideDownloadConfirmDialog()
                         enqueueWebDownloadBuiltIn(url, userAgent, contentDisposition, mimeType, fileName)
                     }
                 }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply { bottomMargin = dp(12) })
@@ -1261,36 +1494,45 @@ class MainActivity : AppCompatActivity() {
                     setTextColor(palette.mutedText)
                     backgroundTintList = ColorStateList.valueOf(Color.TRANSPARENT)
                     setOnClickListener {
-                        downloadOverlay.animate().alpha(0f).setDuration(150).withEndAction {
-                            if (downloadOverlay.parent != null) root.removeView(downloadOverlay)
-                        }.start()
+                        hideDownloadConfirmDialog()
                     }
                 }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(40)))
             })
         }
 
-        downloadOverlay.addView(dialog, FrameLayout.LayoutParams(
+        downloadConfirmOverlay.addView(downloadConfirmDialog, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.WRAP_CONTENT,
             Gravity.CENTER
         ).apply { setMargins(dp(32), 0, dp(32), 0) })
 
         // 点击关闭
-        downloadOverlay.setOnClickListener {
-            downloadOverlay.animate().alpha(0f).setDuration(150).withEndAction {
-                if (downloadOverlay.parent != null) root.removeView(downloadOverlay)
-            }.start()
+        downloadConfirmOverlay.setOnClickListener {
+            hideDownloadConfirmDialog()
         }
 
-        root.addView(downloadOverlay, FrameLayout.LayoutParams(
+        root.addView(downloadConfirmOverlay, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.MATCH_PARENT
         ))
-        downloadOverlay.bringToFront()
+        downloadConfirmOverlay.bringToFront()
+        updateBrowserBackCallback()
 
-        downloadOverlay.animate().alpha(1f).setDuration(180).start()
-        dialog.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(240)
+        downloadConfirmOverlay.animate().alpha(1f).setDuration(180).start()
+        downloadConfirmDialog.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(240)
             .setInterpolator(android.view.animation.DecelerateInterpolator()).start()
+    }
+
+    private fun hideDownloadConfirmDialog(after: () -> Unit = {}) {
+        if (!::downloadConfirmOverlay.isInitialized || downloadConfirmOverlay.parent == null) {
+            after()
+            return
+        }
+        downloadConfirmOverlay.animate().alpha(0f).setDuration(150).withEndAction {
+            if (downloadConfirmOverlay.parent != null) root.removeView(downloadConfirmOverlay)
+            updateBrowserBackCallback()
+            after()
+        }.start()
     }
 
     private fun enqueueWebDownloadWithManager(url: String, userAgent: String, contentDisposition: String?, mimeType: String?) {
@@ -1482,6 +1724,8 @@ class MainActivity : AppCompatActivity() {
     private fun showDownloadsOverlay() {
         if (::downloadsOverlay.isInitialized && downloadsOverlay.parent != null) return
         val palette = currentPalette()
+        downloadSelectionMode = false
+        selectedDownloadIds.clear()
         downloadsOverlay = FrameLayout(this).apply {
             setBackgroundColor(Color.argb(150, 0, 0, 0))
             alpha = 0f
@@ -1493,10 +1737,11 @@ class MainActivity : AppCompatActivity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(18), dp(10), dp(18), dp(18))
         }
-        val refreshDownloads: () -> Unit = {
+        lateinit var selectionBar: LinearLayout
+        lateinit var refreshDownloads: () -> Unit
+        refreshDownloads = {
             content.removeAllViews()
             val manager = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-            addDownloadMessage(content, "实时通知诊断：${DownloadNotificationDiagnostics.latest(this)}")
             val ids = DownloadStore.ids(this)
             if (ids.isEmpty()) {
                 addDownloadMessage(content, "暂无下载任务。网页触发下载后会显示在这里。")
@@ -1507,27 +1752,31 @@ class MainActivity : AppCompatActivity() {
                     cursor?.use {
                         if (!it.moveToFirst()) {
                             DownloadStore.remove(this, id)
+                            selectedDownloadIds.remove(id)
+                            downloadSpeedSamples.remove(id)
                             return@use
                         }
                         visibleCount += 1
                         val status = it.getInt(it.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
-                        val title = it.getString(it.getColumnIndexOrThrow(DownloadManager.COLUMN_TITLE))
+                        val systemTitle = it.getString(it.getColumnIndexOrThrow(DownloadManager.COLUMN_TITLE))
                             .orEmpty().ifBlank { "下载文件" }
+                        val title = DownloadStore.displayName(this, id) ?: systemTitle
                         val received = it.getLong(it.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR))
                         val total = it.getLong(it.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
                         val progress = if (total > 0L) ((received * 100L) / total).toInt().coerceIn(0, 100) else null
-                        val detail = when (status) {
-                            DownloadManager.STATUS_PENDING -> "等待下载"
-                            DownloadManager.STATUS_RUNNING -> progress?.let { "正在下载 · $it%" } ?: "正在下载"
-                            DownloadManager.STATUS_PAUSED -> "下载已暂停"
-                            DownloadManager.STATUS_SUCCESSFUL -> "下载完成"
-                            DownloadManager.STATUS_FAILED -> "下载失败"
-                            else -> "下载状态未知"
+                        val speed = if (status == DownloadManager.STATUS_RUNNING) updateDownloadSpeed(id, received) else {
+                            downloadSpeedSamples.remove(id)
+                            null
                         }
-                        val row = downloadRow(title, detail)
-                        if (status == DownloadManager.STATUS_SUCCESSFUL) {
-                            row.addView(downloadActionButton("打开", "打开下载文件") { openDownloadedFile(id) })
-                        }
+                        val detail = downloadDetail(status, received, total, progress, speed)
+                        val row = downloadRow(
+                            id = id,
+                            title = title,
+                            detail = detail,
+                            selected = selectedDownloadIds.contains(id),
+                            selectionMode = downloadSelectionMode,
+                            status = status
+                        )
                         content.addView(row, LinearLayout.LayoutParams(
                             ViewGroup.LayoutParams.MATCH_PARENT,
                             ViewGroup.LayoutParams.WRAP_CONTENT
@@ -1536,11 +1785,11 @@ class MainActivity : AppCompatActivity() {
                 }
                 if (visibleCount == 0) addDownloadMessage(content, "暂无可显示的下载任务。")
             }
+            updateSelectionBar(selectionBar, refreshDownloads)
         }
         val sheet = MaterialCardView(this).apply {
             radius = dp(24).toFloat()
             cardElevation = dp(18).toFloat()
-            // 材质：下载面板 — 纯白厚毛玻璃
             setCardBackgroundColor(palette.card)
             strokeColor = palette.cardStroke
             strokeWidth = dp(1)
@@ -1558,18 +1807,7 @@ class MainActivity : AppCompatActivity() {
                         textSize = 22f
                         setTextColor(palette.text)
                     }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-                    addView(MaterialButton(this@MainActivity).apply {
-                        text = "刷新"
-                        textSize = 13f
-                        isAllCaps = false
-                        minWidth = 0
-                        minHeight = 0
-                        insetTop = 0
-                        insetBottom = 0
-                        setTextColor(palette.icon)
-                        backgroundTintList = ColorStateList.valueOf(palette.group)
-                        setOnClickListener { refreshDownloads() }
-                    }, LinearLayout.LayoutParams(dp(58), dp(38)))
+                    // 右上角仅保留关闭按钮；列表会自动每秒刷新，因此不再需要刷新按钮。
                     addView(MaterialButton(this@MainActivity).apply {
                         text = "×"
                         textSize = 22f
@@ -1588,6 +1826,14 @@ class MainActivity : AppCompatActivity() {
                     0,
                     1f
                 ))
+                selectionBar = LinearLayout(this@MainActivity).apply {
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(dp(14), dp(8), dp(14), dp(12))
+                }
+                addView(selectionBar, LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ))
             })
         }
         downloadsOverlay.addView(sheet, FrameLayout.LayoutParams(
@@ -1601,7 +1847,10 @@ class MainActivity : AppCompatActivity() {
         ))
         downloadsOverlay.bringToFront()
         updateBrowserBackCallback()
+        downloadsRefreshAction = refreshDownloads
         refreshDownloads()
+        downloadsRefreshHandler.removeCallbacks(downloadsRefreshRunnable)
+        downloadsRefreshHandler.postDelayed(downloadsRefreshRunnable, 1_000L)
         downloadsOverlay.animate().alpha(1f).setDuration(160).start()
         sheet.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(210)
             .setInterpolator(android.view.animation.DecelerateInterpolator()).start()
@@ -1612,13 +1861,80 @@ class MainActivity : AppCompatActivity() {
             after()
             return
         }
+        downloadsRefreshHandler.removeCallbacks(downloadsRefreshRunnable)
+        downloadsRefreshAction = null
         val sheet = downloadsOverlay.getChildAt(0)
         sheet.animate().alpha(0f).scaleX(0.9f).scaleY(0.9f).setDuration(150).withEndAction {
             if (downloadsOverlay.parent != null) root.removeView(downloadsOverlay)
+            selectedDownloadIds.clear()
+            downloadSelectionMode = false
             updateBrowserBackCallback()
             after()
         }.start()
     }
+
+    private fun updateSelectionBar(bar: LinearLayout, refresh: () -> Unit) {
+        bar.removeAllViews()
+        val palette = currentPalette()
+        bar.addView(downloadActionButton(
+            if (downloadSelectionMode) "取消多选" else "多选",
+            if (downloadSelectionMode) "取消文件多选" else "选择多个下载文件"
+        ) {
+            downloadSelectionMode = !downloadSelectionMode
+            if (!downloadSelectionMode) selectedDownloadIds.clear()
+            refresh()
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(40)))
+        if (downloadSelectionMode) {
+            bar.addView(TextView(this).apply {
+                text = "已选 ${selectedDownloadIds.size} 项"
+                textSize = 13f
+                setTextColor(palette.mutedText)
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(12), 0, dp(8), 0)
+            }, LinearLayout.LayoutParams(0, dp(40), 1f))
+            bar.addView(downloadActionButton("删除", "删除已选择的文件") {
+                if (selectedDownloadIds.isEmpty()) {
+                    toast("请先选择文件")
+                } else {
+                    deleteDownloads(selectedDownloadIds.toList())
+                    selectedDownloadIds.clear()
+                    refresh()
+                }
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(40)))
+        } else {
+            bar.addView(View(this), LinearLayout.LayoutParams(0, dp(40), 1f))
+        }
+    }
+
+    private fun updateDownloadSpeed(id: Long, bytes: Long): Long? {
+        val now = SystemClock.elapsedRealtime()
+        val previous = downloadSpeedSamples[id]
+        downloadSpeedSamples[id] = DownloadSpeedSample(bytes, now)
+        if (previous == null || now <= previous.atMillis || bytes < previous.bytes) return null
+        return ((bytes - previous.bytes) * 1_000L / (now - previous.atMillis)).coerceAtLeast(0L)
+    }
+
+    private fun downloadDetail(status: Int, received: Long, total: Long, progress: Int?, speed: Long?): String = when (status) {
+        DownloadManager.STATUS_PENDING -> "等待下载"
+        DownloadManager.STATUS_RUNNING -> buildString {
+            append(progress?.let { "正在下载 · $it%" } ?: "正在下载")
+            if (total > 0L) append(" · ${formatDownloadBytes(received)} / ${formatDownloadBytes(total)}")
+            append(" · ${formatDownloadSpeed(speed)}")
+        }
+        DownloadManager.STATUS_PAUSED -> "下载已暂停"
+        DownloadManager.STATUS_SUCCESSFUL -> "下载完成 · ${formatDownloadBytes(total.takeIf { it > 0L } ?: received)}"
+        DownloadManager.STATUS_FAILED -> "下载失败"
+        else -> "下载状态未知"
+    }
+
+    private fun formatDownloadBytes(bytes: Long): String = when {
+        bytes >= 1_073_741_824L -> String.format(java.util.Locale.US, "%.1f GB", bytes / 1_073_741_824.0)
+        bytes >= 1_048_576L -> String.format(java.util.Locale.US, "%.1f MB", bytes / 1_048_576.0)
+        bytes >= 1024L -> String.format(java.util.Locale.US, "%.1f KB", bytes / 1024.0)
+        else -> "$bytes B"
+    }
+
+    private fun formatDownloadSpeed(speed: Long?): String = speed?.let { "${formatDownloadBytes(it)}/s" } ?: "计算速度中"
 
     private fun addDownloadMessage(container: LinearLayout, message: String) {
         container.addView(TextView(this).apply {
@@ -1629,12 +1945,34 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
-    private fun downloadRow(title: String, detail: String): LinearLayout {
+    private fun downloadRow(
+        id: Long,
+        title: String,
+        detail: String,
+        selected: Boolean,
+        selectionMode: Boolean,
+        status: Int
+    ): LinearLayout {
         val palette = currentPalette()
         return LinearLayout(this).apply {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(14), dp(10), dp(8), dp(10))
-            background = roundedBackground(palette.group, dp(16), palette.cardStroke)
+            background = roundedBackground(
+                if (selected) palette.selectedChip else palette.group,
+                dp(16),
+                palette.cardStroke
+            )
+            if (selectionMode) {
+                addView(CheckBox(this@MainActivity).apply {
+                    isChecked = selected
+                    contentDescription = "选择 $title"
+                    buttonTintList = ColorStateList.valueOf(palette.accent)
+                    setOnClickListener {
+                        if (isChecked) selectedDownloadIds.add(id) else selectedDownloadIds.remove(id)
+                        downloadsRefreshAction?.invoke()
+                    }
+                }, LinearLayout.LayoutParams(dp(34), ViewGroup.LayoutParams.WRAP_CONTENT))
+            }
             addView(LinearLayout(this@MainActivity).apply {
                 orientation = LinearLayout.VERTICAL
                 addView(TextView(this@MainActivity).apply {
@@ -1650,6 +1988,18 @@ class MainActivity : AppCompatActivity() {
                     setPadding(0, dp(3), 0, 0)
                 })
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            setOnClickListener {
+                if (downloadSelectionMode) {
+                    if (selectedDownloadIds.contains(id)) selectedDownloadIds.remove(id) else selectedDownloadIds.add(id)
+                    downloadsRefreshAction?.invoke()
+                } else if (status == DownloadManager.STATUS_SUCCESSFUL) {
+                    openDownloadedFile(id)
+                }
+            }
+            setOnLongClickListener {
+                showDownloadItemActions(it, id, title, status)
+                true
+            }
         }
     }
 
@@ -1668,6 +2018,79 @@ class MainActivity : AppCompatActivity() {
             backgroundTintList = ColorStateList.valueOf(palette.actionBackground)
             setOnClickListener { onClick() }
         }
+    }
+
+    private fun showDownloadItemActions(anchor: View, id: Long, title: String, status: Int) {
+        PopupMenu(this, anchor).apply {
+            if (status == DownloadManager.STATUS_SUCCESSFUL) {
+                menu.add("打开").setOnMenuItemClickListener { openDownloadedFile(id); true }
+                menu.add("分享").setOnMenuItemClickListener { shareDownloadedFile(id); true }
+                menu.add("重命名").setOnMenuItemClickListener { showRenameDownloadDialog(id, title); true }
+            }
+            menu.add(if (status == DownloadManager.STATUS_RUNNING || status == DownloadManager.STATUS_PENDING) "取消并删除" else "删除")
+                .setOnMenuItemClickListener { deleteDownloads(listOf(id)); downloadsRefreshAction?.invoke(); true }
+            show()
+        }
+    }
+
+    private fun deleteDownloads(ids: List<Long>) {
+        val manager = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+        manager.remove(*ids.toLongArray())
+        ids.forEach {
+            DownloadStore.remove(this, it)
+            selectedDownloadIds.remove(it)
+            downloadSpeedSamples.remove(it)
+        }
+        toast("已删除 ${ids.size} 个下载任务")
+    }
+
+    private fun shareDownloadedFile(id: Long) {
+        val manager = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+        val uri = manager.getUriForDownloadedFile(id) ?: run {
+            toast("文件尚不可分享")
+            return
+        }
+        startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+            type = "*/*"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }, "分享文件"))
+    }
+
+    private fun showRenameDownloadDialog(id: Long, currentTitle: String) {
+        val input = EditText(this).apply {
+            setSingleLine(true)
+            setText(currentTitle)
+            selectAll()
+        }
+        AlertDialog.Builder(this)
+            .setTitle("重命名下载")
+            .setView(input)
+            .setNegativeButton("取消", null)
+            .setPositiveButton("保存") { _, _ ->
+                val newName = input.text.toString().trim()
+                if (newName.isBlank()) {
+                    toast("文件名不能为空")
+                    return@setPositiveButton
+                }
+                renameDownload(id, newName)
+                downloadsRefreshAction?.invoke()
+            }
+            .show()
+    }
+
+    private fun renameDownload(id: Long, newName: String) {
+        val manager = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+        val uri = manager.getUriForDownloadedFile(id)
+        val renamed = if (uri != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            runCatching {
+                contentResolver.update(uri, ContentValues().apply {
+                    put(MediaStore.MediaColumns.DISPLAY_NAME, newName)
+                }, null, null) > 0
+            }.getOrDefault(false)
+        } else false
+        DownloadStore.setDisplayName(this, id, newName)
+        toast(if (renamed) "文件已重命名" else "已更新下载列表名称")
     }
 
     private fun openDownloadedFile(id: Long) {
@@ -1810,8 +2233,43 @@ class MainActivity : AppCompatActivity() {
                         themeMode = ThemeMode.entries.first { it.label == selected }
                         preferences.edit().putString(KEY_THEME_MODE, themeMode.key).apply()
                         applyAppearance()
-                        attachBottomControls()
+                        refreshSettings()
                     })
+
+                    addView(settingsDivider())
+                    addView(settingsChoice("界面风格", UiDesignStyle.entries.map { it.label }, uiDesignStyle.label) { selected ->
+                        uiDesignStyle = UiDesignStyle.entries.first { it.label == selected }
+                        preferences.edit().putString(KEY_UI_DESIGN_STYLE, uiDesignStyle.key).apply()
+                        applyAppearance()
+                        refreshSettings()
+                    })
+                    if (isMd3Style()) {
+                        addView(settingsDivider())
+                        addView(settingsChoice("调色板样式", Md3PaletteStyle.entries.map { it.label }, md3PaletteStyle.label) { selected ->
+                            md3PaletteStyle = Md3PaletteStyle.entries.first { it.label == selected }
+                            preferences.edit().putString(KEY_MD3_PALETTE_STYLE, md3PaletteStyle.key).apply()
+                            applyAppearance()
+                            refreshSettings()
+                        })
+                        addView(settingsDivider())
+                        addView(settingsChoice("颜色规格", Md3ColorSpec.entries.map { it.label }, md3ColorSpec.label) { selected ->
+                            md3ColorSpec = Md3ColorSpec.entries.first { it.label == selected }
+                            preferences.edit().putString(KEY_MD3_COLOR_SPEC, md3ColorSpec.key).apply()
+                            applyAppearance()
+                            refreshSettings()
+                        })
+                        addView(settingsDivider())
+                        addView(settingsSwitch(
+                            "动态颜色",
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) "使用 Android 12+ 系统壁纸调色；关闭后使用所选调色板。" else "仅 Android 12+ 可用；当前设备将使用所选调色板。",
+                            md3DynamicColor
+                        ) { enabled ->
+                            md3DynamicColor = enabled
+                            preferences.edit().putBoolean(KEY_MD3_DYNAMIC_COLOR, enabled).apply()
+                            applyAppearance()
+                            refreshSettings()
+                        })
+                    }
 
                     addView(settingsDivider())
                     addView(settingsChoice("Tab 显示模式", TabLayoutMode.entries.map { it.label }, tabLayoutMode.label) { selected ->
@@ -1828,11 +2286,11 @@ class MainActivity : AppCompatActivity() {
                     })
 
                     addView(settingsDivider())
-                    addView(settingsSwitch("预测性返回手势", "启用后可预览返回手势的目标页面（Android 13+）。", predictiveBackEnabled) { enabled ->
-                        predictiveBackEnabled = enabled
-                        preferences.edit().putBoolean(KEY_PREDICTIVE_BACK, enabled).apply()
+                    addView(settingsChoice("返回手势样式", BackAnimationMode.entries.map { it.label }, backAnimationMode.label) { selected ->
+                        backAnimationMode = BackAnimationMode.entries.first { it.label == selected }
+                        preferences.edit().putString(KEY_BACK_ANIMATION_MODE, backAnimationMode.key).apply()
                         updateBrowserBackCallback()
-                        toast(if (enabled) "已启用：根页面返回手势将交给系统预览" else "已关闭：使用传统立即返回行为")
+                        toast(if (backAnimationMode == BackAnimationMode.AOSP) "已启用 AOSP：根页面返回将交给系统预览" else "已切换为：${backAnimationMode.label}")
                     })
 
                     addView(settingsDivider())
@@ -2133,14 +2591,15 @@ class MainActivity : AppCompatActivity() {
             root.removeView(settingsOverlay)
         }
         val palette = currentPalette()
-        val infoOverlay = FrameLayout(this).apply {
+        if (::appInfoOverlay.isInitialized && appInfoOverlay.parent != null) return
+        appInfoOverlay = FrameLayout(this).apply {
             // 材质：应用信息遮罩 — 使用页面底色的实色遮罩营造景深
             setBackgroundColor(palette.page)
             alpha = 0f
             elevation = dp(50).toFloat()
             isClickable = true
         }
-        val card = MaterialCardView(this).apply {
+        appInfoCard = MaterialCardView(this).apply {
             radius = dp(28).toFloat()
             cardElevation = dp(18).toFloat()
             // 材质：应用信息卡 — 纯白厚毛玻璃
@@ -2179,9 +2638,7 @@ class MainActivity : AppCompatActivity() {
                             backgroundTintList = ColorStateList.valueOf(palette.group)
                             setTextColor(palette.icon)
                             setOnClickListener {
-                                infoOverlay.animate().alpha(0f).setDuration(150).withEndAction {
-                                    if (infoOverlay.parent != null) root.removeView(infoOverlay)
-                                }.start()
+                                hideAppInfoPage()
                             }
                         }, LinearLayout.LayoutParams(dp(40), dp(40)))
                     })
@@ -2240,21 +2697,34 @@ class MainActivity : AppCompatActivity() {
             })
         }
 
-        infoOverlay.addView(card, FrameLayout.LayoutParams(
+        appInfoOverlay.addView(appInfoCard, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.WRAP_CONTENT,
             Gravity.CENTER
         ).apply { setMargins(dp(32), dp(80), dp(32), dp(80)) })
 
-        root.addView(infoOverlay, FrameLayout.LayoutParams(
+        root.addView(appInfoOverlay, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.MATCH_PARENT
         ))
-        infoOverlay.bringToFront()
+        appInfoOverlay.bringToFront()
+        updateBrowserBackCallback()
 
-        infoOverlay.animate().alpha(1f).setDuration(180).start()
-        card.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(240)
+        appInfoOverlay.animate().alpha(1f).setDuration(180).start()
+        appInfoCard.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(240)
             .setInterpolator(android.view.animation.DecelerateInterpolator()).start()
+    }
+
+    private fun hideAppInfoPage(after: () -> Unit = {}) {
+        if (!::appInfoOverlay.isInitialized || appInfoOverlay.parent == null) {
+            after()
+            return
+        }
+        appInfoOverlay.animate().alpha(0f).setDuration(150).withEndAction {
+            if (appInfoOverlay.parent != null) root.removeView(appInfoOverlay)
+            updateBrowserBackCallback()
+            after()
+        }.start()
     }
 
     private fun captureAnchor(view: View): PointF {

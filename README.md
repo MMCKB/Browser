@@ -10,7 +10,7 @@
 
 ## 设计原则
 
-浮悬浏览器将网页置于视觉中心。导航、标签和工具不隐藏，但以更轻的底部控件长期保留；应用图标采用白底、深海军蓝浏览器轮廓、蓝色导航点与青色指针，不依赖文字、渐变、拟物阴影或第三方品牌标记。
+浮悬浏览器将网页置于视觉中心。导航、标签和工具不隐藏，但以轻量的底部控件长期保留。默认“现在的”风格使用透出网页内容的磨砂椭圆 Tab；可在设置中改用更标准、表面更实的 Google MD3 风格。系统状态栏和导航栏始终可用。
 
 | 维度 | 设计选择 |
 |---|---|
@@ -19,7 +19,8 @@
 | 控制布局 | 底部等边距椭圆 Tab 容器、地址栏、椭圆形后退/前进/刷新组、新建标签与 Tab 入口；网页从容器下方透出。 |
 | Tab 模式 | 设置中固定选择“始终极简”或“始终完整” |
 | 工具栏 | 从 Tab 区上方弹出的独立双列菜单，支持空白处与返回键关闭 |
-| 视觉语言 | 半透明磨砂椭圆 Tab 容器，支持浅色、深色、跟随系统；系统状态栏和导航栏始终保持可用；启动图标为白底极简样式。 |
+| 当前风格 | 半透明磨砂椭圆 Tab，Android 12+ 以网页局部快照实现模糊，旧系统使用透明降级层。 |
+| Google MD3 风格 | 使用标准 Material 3 色面、圆角和间距；可配置调色板样式、颜色规格与动态颜色。 |
 
 ## 功能
 
@@ -28,10 +29,11 @@
 | 多标签 | 创建、切换、关闭 WebView 标签；极简模式提供标签计数选择器，完整模式显示可切换的标签条。 |
 | 地址与搜索 | 支持 HTTP(S) 地址、常见域名和 Bing 搜索；首页不会自动加载搜索结果。 |
 | Tab 工具 | 添加/移除书签、下载管理、分享、复制网址、清缓存、回首页、关闭标签、刷新和设置。 |
-| 网页设置 | JavaScript、桌面版网站、主题、标签显示模式、预测性返回手势与浏览数据清理。 |
-| 网页下载 | 内置下载器将网页任务登记到 Android `DownloadManager`；下载管理页可刷新状态并打开完成文件。 |
-| 下载实时通知 | 内置下载开始后请求通知权限，并启动按需 `dataSync` 前台服务；即使返回桌面，也会显示真实文件名、已下载字节和百分比。 |
-| 预测性返回 | Android 13+ 使用 AndroidX 返回调度器；覆盖层和网页历史优先处理，根页面无可返回状态时交回系统返回桌面预览。 |
+| 主题 | 浅色、深色、跟随系统与独立界面风格设置。MD3 选中后会显示调色板样式、颜色规格和动态颜色开关；动态颜色仅在 Android 12+ 读取系统壁纸色，低版本自动回退至所选静态调色板。[3] |
+| 返回手势 | 可选“无 / AOSP / Miuix / 缩放 / 经典”。设置、工具栏、下载确认、下载管理、应用信息、网页历史和多标签关闭均走统一返回分发；AOSP 在根页面交还系统返回桌面动画。[4] [5] |
+| 网页下载 | 内置下载器将网页任务登记到 Android `DownloadManager`。下载管理页支持自动刷新、任务打开、底部多选与批量删除。 |
+| 下载长按操作 | 已完成任务长按可打开、分享和重命名；进行中任务可取消并删除。Android 10+ 会尝试通过内容 URI 更新实际显示名称，无法修改时保留应用内列表名称并明确提示。 |
+| 下载实时通知 | 内置下载开始后，按需启动 `dataSync` 前台服务；即使返回桌面，也会以真实文件名、下载字节、百分比和每秒字节差分速度持续更新。 |
 | WebView 安全 | 禁止混合内容、文件访问和内容访问；非 HTTP(S) 协议交由系统处理。 |
 
 > Android 16+ 是否将进度通知提升为系统实时动态通知，取决于系统策略、用户设置与设备实现。无论是否被提升，普通系统通知栏中可见、持续更新的下载进度通知才是基本验收条件。[1] [2]
@@ -62,7 +64,7 @@
 ANDROID_HOME=/path/to/android-sdk \
 ANDROID_SDK_ROOT=/path/to/android-sdk \
 JAVA_HOME=/path/to/jdk-17 \
-./gradlew clean :app:assembleDebug :app:lintDebug --no-daemon --max-workers=1
+./gradlew clean :app:assembleDebug :app:assembleRelease :app:lintDebug --no-daemon --max-workers=1
 ```
 
 调试 APK 默认输出至：
@@ -73,29 +75,38 @@ app/build/outputs/apk/debug/app-debug.apk
 
 调试与发布构建均使用同一份 **MMCKB** 证书。仓库不包含私钥：本地使用被忽略的 `signing.properties`，GitHub Actions 使用 `KEYSTORE_BASE64`、`KEYSTORE_PASSWORD`、`KEY_ALIAS` 与 `KEY_PASSWORD` 机密。请勿提交密钥库、属性文件或口令。
 
-## 下载通知验证
+## 下载与通知验收
 
-1. 打开 `⋮ → 设置 → 下载实时通知`，并允许系统通知权限。
-2. 在下载确认弹窗选择 **应用内下载**，并开始一个不会瞬间结束的文件。
-3. 返回桌面，通知栏会以 `DownloadManager` 返回的文件标题、已下载字节和百分比持续更新；Android 16+ 且系统允许时可进一步提升为实时动态通知。
-4. 如未看到通知，打开 `⋮ → 下载管理` 并查看顶部的“实时通知诊断”。它会标识权限、探针、`startForeground`、任务监控或进度更新的最后状态。
+1. 在网页触发下载，并在下载确认页选择 **应用内下载**。
+2. 打开 `⋮ → 下载`，确认进行中任务在首个采样周期后显示 `B/s`、`KB/s`、`MB/s` 或 `GB/s`；顶部不再显示实时通知诊断文字，右上角只保留关闭按钮。
+3. 使用左下角 **多选**，勾选多个任务后删除，再点 **取消多选** 退出选择状态。
+4. 长按已完成任务，验证“打开 / 分享 / 重命名 / 删除”；长按进行中任务，验证“取消并删除”。
+5. 返回桌面，确认通知显示文件名、下载字节、百分比和速度。若设备未显示通知，请先确认系统通知总开关及应用通知权限。[1] [2]
+
+## 返回手势验收
+
+1. 在 `⋮ → 设置 → 返回手势样式` 中分别选择五个选项。
+2. 对工具栏、设置、下载确认、下载管理和应用信息页执行返回手势或返回键，确认每次都优先关闭当前最上层页面。
+3. 对网页执行返回，确认先回 WebView 历史、再回本地首页、再关闭额外标签。
+4. 在 AOSP 模式的根首页执行返回，确认 Android 13+ 系统能够接管回到桌面的预测性预览；较低系统使用兼容返回行为。[4]
 
 ## 项目结构
 
 ```text
 app/src/main/java/com/mmckb/browser/
-├── MainActivity.kt                     # 浏览器、标签、地址栏、工具栏、设置与内嵌下载管理
-├── DownloadProgressService.kt          # 按需 dataSync 前台下载进度服务
-├── DownloadNotificationDiagnostics.kt  # 测试通知、探针与应用内诊断状态
-└── DownloadStore.kt                    # DownloadManager 任务 ID 本地存储
+├── MainActivity.kt                     # 浏览器、标签、地址栏、工具栏、主题、统一返回与下载管理
+├── DownloadProgressService.kt          # 按需 dataSync 前台下载进度服务与真实速度采样
+├── DownloadNotificationDiagnostics.kt  # 通知 channel、权限与诊断记录
+└── DownloadStore.kt                    # DownloadManager 任务 ID 与应用内重命名显示名
 
-app/src/main/res/                        # 主题、字符串、启动图标与适配资源
+docs/installerx_reference_scope.md      # GPL 参考范围说明
+app/src/main/res/                       # 主题、字符串、启动图标与适配资源
 branding/floating_browser_icon_minimal_white.png  # 白底极简图标主资源
 ```
 
-## 许可证
+## 许可证与参考边界
 
-本仓库以 [MIT License](LICENSE) 发布。Android SDK、AndroidX、Material Components、目标网页与 Bing 服务分别受其自身许可证或服务条款约束。
+本仓库以 [MIT License](LICENSE) 发布。用户指定的 [InstallerX-Revived](https://github.com/wxxsfxyzm/InstallerX-Revived) 使用 GPL-3.0，因此本项目**没有复制、移植或链接**其源代码与资源；只将用户明确提出的产品方向独立实现为传统 Android View 代码。具体范围见 [`docs/installerx_reference_scope.md`](docs/installerx_reference_scope.md)。
 
 ## 参考资料
 
@@ -103,4 +114,10 @@ branding/floating_browser_icon_minimal_white.png  # 白底极简图标主资源
 
 [2] [Android Developers：通知运行时权限](https://developer.android.com/develop/ui/views/notifications/notification-permission)
 
-[3] [Android Developers：WebView](https://developer.android.com/develop/ui/views/layout/webapps/webview)
+[3] [Android Developers：在 Views 中启用动态颜色](https://developer.android.com/develop/ui/views/theming/dynamic-colors)
+
+[4] [Android Developers：支持预测性返回手势](https://developer.android.com/guide/navigation/custom-back/predictive-back-gesture)
+
+[5] [Android Developers：为 Views 提供预测性返回动画](https://developer.android.com/guide/navigation/custom-back/support-animations-views)
+
+[6] [Android Developers：WebView](https://developer.android.com/develop/ui/views/layout/webapps/webview)

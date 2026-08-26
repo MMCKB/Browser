@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.SystemClock
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
@@ -34,6 +35,8 @@ class DownloadProgressService : Service() {
     private var foregroundReady = false
     private var stopped = false
     private var lastSummary = ""
+    private data class SpeedSample(val bytes: Long, val atMillis: Long)
+    private val speedSamples = mutableMapOf<Long, SpeedSample>()
 
     private val pollDownloads = object : Runnable {
         override fun run() {
@@ -99,6 +102,7 @@ class DownloadProgressService : Service() {
         var leadingName = "下载文件"
         var leadingDownloaded = 0L
         var leadingTotal: Long? = null
+        var leadingSpeed: Long? = null
         val removeIds = mutableListOf<Long>()
 
         monitoredIds.forEach { id ->
@@ -124,20 +128,31 @@ class DownloadProgressService : Service() {
                         leadingName = name
                         leadingDownloaded = downloaded
                         leadingTotal = total.takeIf { size -> size > 0L }
+                        leadingSpeed = if (status == DownloadManager.STATUS_RUNNING) updateSpeed(id, downloaded) else null
                     }
-                    DownloadManager.STATUS_SUCCESSFUL -> completedCount += 1
-                    DownloadManager.STATUS_FAILED -> failedCount += 1
+                    DownloadManager.STATUS_SUCCESSFUL -> {
+                        speedSamples.remove(id)
+                        completedCount += 1
+                    }
+                    DownloadManager.STATUS_FAILED -> {
+                        speedSamples.remove(id)
+                        failedCount += 1
+                    }
                 }
             }
         }
-        removeIds.forEach(monitoredIds::remove)
+        removeIds.forEach {
+            monitoredIds.remove(it)
+            speedSamples.remove(it)
+        }
 
         if (activeCount > 0) {
             val progress = leadingTotal?.let { total -> ((leadingDownloaded * 100L) / total).toInt().coerceIn(0, 100) }
+            val speedText = formatSpeed(leadingSpeed)
             val detail = if (progress != null && leadingTotal != null) {
-                "$progress% · ${formatBytes(leadingDownloaded)} / ${formatBytes(leadingTotal!!)}"
+                "$progress% · ${formatBytes(leadingDownloaded)} / ${formatBytes(leadingTotal!!)} · $speedText"
             } else {
-                "正在下载 · ${formatBytes(leadingDownloaded)}"
+                "正在下载 · ${formatBytes(leadingDownloaded)} · $speedText"
             }
             val summary = "$leadingName|$detail|$activeCount"
             if (summary != lastSummary) {
@@ -203,6 +218,16 @@ class DownloadProgressService : Service() {
         )
         DownloadNotificationDiagnostics.record(this, "$title：$detail")
     }
+
+    private fun updateSpeed(id: Long, bytes: Long): Long? {
+        val now = SystemClock.elapsedRealtime()
+        val previous = speedSamples[id]
+        speedSamples[id] = SpeedSample(bytes, now)
+        if (previous == null || now <= previous.atMillis || bytes < previous.bytes) return null
+        return ((bytes - previous.bytes) * 1_000L / (now - previous.atMillis)).coerceAtLeast(0L)
+    }
+
+    private fun formatSpeed(speed: Long?): String = speed?.let { "${formatBytes(it)}/s" } ?: "计算速度中"
 
     private fun stopProgressService() {
         stopped = true
