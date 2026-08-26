@@ -65,6 +65,7 @@ import androidx.core.graphics.Insets
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
 import kotlin.math.roundToInt
@@ -186,6 +187,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var preferences: SharedPreferences
     private lateinit var root: FrameLayout
     private lateinit var webContainer: FrameLayout
+    private lateinit var systemBarsScrim: FrameLayout
+    private lateinit var topSystemBarScrim: View
+    private lateinit var bottomSystemBarScrim: View
     private lateinit var bottomControlCard: FrameLayout
     private lateinit var frostedPill: FrameLayout
     private lateinit var frostedWebBackdrop: ImageView
@@ -267,6 +271,7 @@ class MainActivity : AppCompatActivity() {
                 setMargins(0, 0, 0, 0)
             }
         )
+        installSystemBarsScrim()
         attachBottomControls()
         setContentView(root)
         createTab()
@@ -334,9 +339,70 @@ class MainActivity : AppCompatActivity() {
         ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
             systemBarInsets = insets.getInsets(WindowInsetsCompat.Type.systemBars())
             updateBottomControlPosition()
+            updateSystemBarsScrim()
             insets
         }
         ViewCompat.requestApplyInsets(root)
+    }
+
+    private fun installSystemBarsScrim() {
+        systemBarsScrim = FrameLayout(this).apply {
+            isClickable = false
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+        topSystemBarScrim = View(this)
+        bottomSystemBarScrim = View(this)
+        systemBarsScrim.addView(topSystemBarScrim)
+        systemBarsScrim.addView(bottomSystemBarScrim)
+        root.addView(
+            systemBarsScrim,
+            1,
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+        )
+        updateSystemBarsScrim()
+    }
+
+    private fun updateSystemBarsScrim() {
+        if (!::systemBarsScrim.isInitialized || systemBarsScrim.parent == null) return
+        val dark = isDarkPalette()
+        val topTint = if (dark) Color.argb(126, 18, 18, 20) else Color.argb(98, 255, 255, 255)
+        val bottomTint = if (dark) Color.argb(148, 18, 18, 20) else Color.argb(112, 255, 255, 255)
+        topSystemBarScrim.background = GradientDrawable(
+            GradientDrawable.Orientation.TOP_BOTTOM,
+            intArrayOf(topTint, Color.TRANSPARENT)
+        )
+        bottomSystemBarScrim.background = GradientDrawable(
+            GradientDrawable.Orientation.TOP_BOTTOM,
+            intArrayOf(Color.TRANSPARENT, bottomTint)
+        )
+        topSystemBarScrim.layoutParams = FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            (systemBarInsets.top + dp(22)).coerceAtLeast(dp(22)),
+            Gravity.TOP
+        )
+        bottomSystemBarScrim.layoutParams = FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            (systemBarInsets.bottom + dp(26)).coerceAtLeast(dp(26)),
+            Gravity.BOTTOM
+        )
+    }
+
+    private fun applySystemBarPresentation(palette: Palette) {
+        // 保持状态栏和导航栏由系统绘制，网页在其下延伸；渐变遮罩只用于柔化文字与内容的交界。
+        window.statusBarColor = Color.TRANSPARENT
+        window.navigationBarColor = Color.TRANSPARENT
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            window.isStatusBarContrastEnforced = false
+            window.isNavigationBarContrastEnforced = false
+        }
+        WindowInsetsControllerCompat(window, root).apply {
+            isAppearanceLightStatusBars = !isDarkPalette()
+            isAppearanceLightNavigationBars = !isDarkPalette()
+        }
+        updateSystemBarsScrim()
     }
 
     private fun bottomTabOuterGap(): Int = dp(10)
@@ -366,8 +432,7 @@ class MainActivity : AppCompatActivity() {
         }
         val palette = currentPalette()
         root.setBackgroundColor(palette.page)
-        window.statusBarColor = palette.page
-        window.navigationBarColor = palette.page
+        applySystemBarPresentation(palette)
         bottomControlCard = buildBottomControlCard()
         // 极简模式为短椭圆胶囊；完整模式是装下双行控件的圆角长方形容器。
         val tabBarHeight = dp(if (tabLayoutMode == TabLayoutMode.FULL) 96 else 54)
@@ -1787,9 +1852,7 @@ class MainActivity : AppCompatActivity() {
                 if (selectedDownloadIds.isEmpty()) {
                     toast("请先选择文件")
                 } else {
-                    deleteDownloads(selectedDownloadIds.toList())
-                    selectedDownloadIds.clear()
-                    refresh()
+                    showBatchDeleteConfirmation(selectedDownloadIds.toList(), refresh)
                 }
             }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(40)))
         } else {
@@ -1924,15 +1987,53 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun deleteDownloads(ids: List<Long>) {
-        val manager = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-        manager.remove(*ids.toLongArray())
-        ids.forEach {
-            DownloadStore.remove(this, it)
-            selectedDownloadIds.remove(it)
-            downloadSpeedSamples.remove(it)
+    private fun showBatchDeleteConfirmation(ids: List<Long>, refresh: () -> Unit) {
+        val deleteFiles = CheckBox(this).apply {
+            text = "同时删除已完成的文件"
+            textSize = 15f
+            isChecked = false
+            setPadding(dp(20), dp(4), dp(20), dp(4))
         }
-        toast("已删除 ${ids.size} 个下载任务")
+        AlertDialog.Builder(this)
+            .setTitle("删除 ${ids.size} 个下载任务？")
+            .setMessage("不勾选时仅从本浏览器的下载列表移除任务，已完成文件会保留在设备中。进行中的任务会被取消。")
+            .setView(deleteFiles)
+            .setNegativeButton("取消", null)
+            .setPositiveButton("删除") { _, _ ->
+                deleteDownloads(ids, deleteFiles.isChecked)
+                selectedDownloadIds.clear()
+                refresh()
+            }
+            .show()
+    }
+
+    private fun deleteDownloads(ids: List<Long>, deleteFiles: Boolean = true) {
+        val manager = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+        var removedFiles = 0
+        ids.forEach { id ->
+            val status = downloadStatus(manager, id)
+            // 仅删除任务时保留已完成文件；进行中、等待中和失败任务仍需从 DownloadManager 取消/移除。
+            val removeFromSystem = deleteFiles || status != DownloadManager.STATUS_SUCCESSFUL
+            if (removeFromSystem) {
+                manager.remove(id)
+                if (status == DownloadManager.STATUS_SUCCESSFUL && deleteFiles) removedFiles += 1
+            }
+            DownloadStore.remove(this, id)
+            selectedDownloadIds.remove(id)
+            downloadSpeedSamples.remove(id)
+        }
+        val message = if (deleteFiles) {
+            "已删除 ${ids.size} 个下载任务${if (removedFiles > 0) "，并删除 $removedFiles 个文件" else ""}"
+        } else {
+            "已从列表移除 ${ids.size} 个下载任务，文件已保留"
+        }
+        toast(message)
+    }
+
+    private fun downloadStatus(manager: DownloadManager, id: Long): Int? {
+        return manager.query(DownloadManager.Query().setFilterById(id))?.use { cursor ->
+            if (cursor.moveToFirst()) cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS)) else null
+        }
     }
 
     private fun shareDownloadedFile(id: Long) {
@@ -2450,8 +2551,7 @@ class MainActivity : AppCompatActivity() {
         // 刷新整个界面以应用新主题
         val palette = currentPalette()
         root.setBackgroundColor(palette.page)
-        window.statusBarColor = palette.page
-        window.navigationBarColor = palette.page
+        applySystemBarPresentation(palette)
         // 重新构建底部控件
         attachBottomControls()
         // 刷新 web 容器内当前内容

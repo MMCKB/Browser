@@ -29,9 +29,10 @@
 | 多标签 | 创建、切换、关闭 WebView 标签；极简模式提供标签计数选择器，完整模式显示可切换的标签条。 |
 | 地址与搜索 | 支持 HTTP(S) 地址、常见域名和 Bing 搜索；首页不会自动加载搜索结果。 |
 | Tab 工具 | 添加/移除书签、下载管理、分享、复制网址、清缓存、回首页、关闭标签、刷新和设置。 |
+| 系统栏 | 状态栏与导航栏保持系统可用；网页内容自然延伸到其下方，并通过轻量渐变遮罩柔化图标与网页内容的交界。 |
 | 主题 | 支持浅色、深色与跟随系统；所有模式统一使用现有磨砂视觉。 |
 | 返回手势 | 可选“无 / AOSP / Miuix / 缩放 / 经典”。点击选项会立即切换并刷新当前选中状态；设置、工具栏、下载确认、下载管理、应用信息、网页历史和多标签关闭均走统一返回分发；AOSP 在根页面交还系统返回桌面动画。[3] [4] |
-| 网页下载 | 内置下载器将网页任务登记到 Android `DownloadManager`。下载管理页支持自动刷新、任务打开、底部多选与批量删除。 |
+| 网页下载 | 内置下载器将网页任务登记到 Android `DownloadManager`。下载管理页支持自动刷新、任务打开、底部多选与批量删除；批量删除会确认是否同时删除已完成文件，默认仅移除下载任务并保留文件。 |
 | 下载长按操作 | 已完成任务长按可打开、分享和重命名；进行中任务可取消并删除。Android 10+ 会尝试通过内容 URI 更新实际显示名称，无法修改时保留应用内列表名称并明确提示。 |
 | 下载实时通知 | 内置下载开始后，按需启动 `dataSync` 前台服务；即使返回桌面，也会以真实文件名、下载字节、百分比和每秒字节差分速度持续更新。 |
 | WebView 安全 | 禁止混合内容、文件访问和内容访问；非 HTTP(S) 协议交由系统处理。 |
@@ -79,7 +80,7 @@ app/build/outputs/apk/debug/app-debug.apk
 
 1. 在网页触发下载，并在下载确认页选择 **应用内下载**。
 2. 打开 `⋮ → 下载`，确认进行中任务在首个采样周期后显示 `B/s`、`KB/s`、`MB/s` 或 `GB/s`；顶部不再显示实时通知诊断文字，右上角只保留关闭按钮。
-3. 使用左下角 **多选**，勾选多个任务后删除，再点 **取消多选** 退出选择状态。
+3. 使用左下角 **多选**，勾选多个任务后点 **删除**。在确认弹窗中，勾选“同时删除已完成的文件”会尝试删除文件；不勾选则只从浏览器列表移除下载任务并保留文件。再点 **取消多选** 退出选择状态。
 4. 长按已完成任务，验证“打开 / 分享 / 重命名 / 删除”；长按进行中任务，验证“取消并删除”。
 5. 返回桌面，确认通知显示文件名、下载字节、百分比和速度。若设备未显示通知，请先确认系统通知总开关及应用通知权限。[1] [2]
 
@@ -90,10 +91,28 @@ app/build/outputs/apk/debug/app-debug.apk
 3. 对网页执行返回，确认先回 WebView 历史、再回本地首页、再关闭额外标签。
 4. 在 AOSP 模式的根首页执行返回，确认 Android 13+ 系统能够接管回到桌面的预测性预览；较低系统使用兼容返回行为。[3]
 
+## 系统栏显示验收
+
+1. 打开任意网页，确认状态栏和导航栏仍由系统显示并可正常使用。
+2. 确认网页背景延伸至系统栏下方，但状态栏和导航栏图标区域有轻量渐变过渡，不出现生硬的纯色横条或内容突兀贴边。
+
 ## 完整 Tab 圆角验收
 
 1. 在 `⋮ → 设置 → Tab 显示模式` 选择 **始终完整**，确认底部 Tab 为四角圆润的长方形，而非极简模式的椭圆胶囊。
 2. 调整 **完整 Tab 圆角** 滑杆到 `0%`、默认 `28%` 和 `100%`，确认四个角在松开滑杆后立即按所选值更新，并在重启应用后保持。
+
+## Edge 插件兼容性
+
+当前版本**不能直接安装或兼容 Microsoft Edge Add-ons 插件**。Edge 扩展由 `manifest`、JavaScript 与扩展 UI 组成，并依赖 Edge/Chromium 浏览器作为扩展宿主来提供扩展 API、权限、后台执行、内容脚本、工具栏与扩展存储。[6] Edge 与其他 Chromium 浏览器在扩展打包和大量 API 上通常相近，但这不等于嵌入式 Android WebView 也提供扩展宿主能力。[6]
+
+| 项目 | 当前原生 Android WebView 路线 | 结论 |
+|---|---|---|
+| 网页渲染 | 使用 Chromium 渲染引擎。 | 可以较好地渲染大多数网页。 |
+| Edge 插件安装与管理 | `android.webkit.WebView` 没有公开的 Edge Add-ons/CRX 安装、manifest 解析或扩展生命周期 API。 | 不可直接支持。 |
+| 扩展运行时能力 | 没有公开的 `chrome.*` / `edge.*` 扩展 API、内容脚本、后台 service worker、扩展权限与工具栏宿主。 | 不可直接兼容真实 Edge 插件。 |
+| WebView 与完整浏览器 | 官方说明 WebView 虽采用 Chromium，但不共享 Chrome 数据，且缺少部分完整浏览器功能。[7] [5] | 渲染内核相同不是扩展兼容的充分条件。 |
+
+如果后续要增加可扩展能力，推荐独立设计受限的**用户脚本**功能，配套来源管理、站点匹配、显式授权、隔离与安全审核；它不应被标注为 Edge 插件兼容。若目标是高覆盖率运行真实 Edge 插件，则需要维护完整 Chromium/Edge 级扩展宿主或获得相应厂商嵌入式方案，复杂度、更新成本和安全责任均远超当前 WebView 架构。Chrome 的 `webview` 扩展标签文档也明确其仅适用于 ChromeOS，不能作为 Android WebView 的实现依据。[8]
 
 ## 项目结构
 
@@ -123,3 +142,9 @@ branding/floating_browser_icon_minimal_white.png  # 白底极简图标主资源
 [4] [Android Developers：为 Views 提供预测性返回动画](https://developer.android.com/guide/navigation/custom-back/support-animations-views)
 
 [5] [Android Developers：WebView](https://developer.android.com/develop/ui/views/layout/webapps/webview)
+
+[6] [Microsoft Learn：Microsoft Edge extensions overview](https://learn.microsoft.com/en-us/microsoft-edge/extensions/)
+
+[7] [Chrome for Developers：WebView overview](https://developer.chrome.com/docs/webview)
+
+[8] [Chrome for Developers：chrome.webviewTag（仅 ChromeOS）](https://developer.chrome.com/docs/apps/reference/webviewTag)
